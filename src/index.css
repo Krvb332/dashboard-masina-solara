@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: 'IBM Plex Sans Variable', 'Segoe UI', sans-serif;
+  color: #fafafa;
+  background: #09090b;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+
+  --color-primary: #0c5cab;
+  --color-primary-strong: #1684e8;
+  --color-surface: #111317;
+  --color-surface-raised: #181b20;
+  --color-border: #292d35;
+  --color-muted: #9299a6;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 80% 0%, rgb(12 92 171 / 18%), transparent 32rem),
+    #09090b;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 3px;
+}
+
+::selection {
+  color: #fff;
+  background: #0c5cab;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
