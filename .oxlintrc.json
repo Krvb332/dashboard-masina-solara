@@ -3,6 +3,17 @@
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["echarts-for-react/lib/*"],
+            "message": "Folosește 'echarts-for-react/esm/core'. Varianta lib/ este CommonJS; interop-ul din browser o livrează ca obiect de modul, iar React cade cu „Element type is invalid\". Testele din jsdom nu prind asta, pentru că Node rezolvă corect exports.default."
+          }
+        ]
+      }
+    ]
   }
 }
