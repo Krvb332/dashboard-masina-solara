@@ -1,0 +1,31 @@
+[project]
+name = "tucn-telemetry-server"
+version = "0.1.0"
+description = "Serviciu de telemetrie pentru dashboardul din pitlane - TUCN Racing Team"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.120.0",
+    "uvicorn[standard]>=0.40.0",
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.14.0",
+    "aiomqtt>=2.4.0",
+    "aiosqlite>=0.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.0.0",
+    "httpx>=0.28.0",
+]
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*", "simulator*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

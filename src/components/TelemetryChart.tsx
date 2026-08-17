@@ -6,7 +6,20 @@ import {
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import ReactEChartsCore from 'echarts-for-react/lib/core'
+import { useEffect, useRef } from 'react'
+import { formatClock, formatNumber } from '../lib/format'
+import { telemetryBuffer } from '../lib/telemetry-buffer'
+import { useTelemetryStore } from '../stores/telemetry-store'
+
+/**
+ * Graficul fluxului live.
+ *
+ * Datele vin direct din bufferul de serii temporale, într-o buclă
+ * `requestAnimationFrame`, ocolind complet React: la 10 Hz, o re-randare React
+ * pentru fiecare punct ar costa mult mai mult decât desenarea propriu-zisă.
+ * Numărul de puncte este redus la lățimea disponibilă în pixeli, păstrând
+ * minimul și maximul fiecărui interval, ca vârfurile scurte să nu dispară.
+ */
 
 echarts.use([
   LineChart,
@@ -16,59 +29,181 @@ echarts.use([
   CanvasRenderer,
 ])
 
-const labels = ['12:04', '12:05', '12:06', '12:07', '12:08', '12:09', '12:10']
+/** Cât de des redesenăm. Mai des decât atât nu percepe ochiul pe un grafic. */
+const REDRAW_INTERVAL_MS = 200
+const FALLBACK_COLORS = ['#60a5fa', '#fbbf24', '#34d399', '#f472b6', '#a78bfa']
 
-export function TelemetryChart() {
+type TelemetryChartProps = {
+  signalKeys: string[]
+  /** Fereastra vizibilă, în milisecunde. */
+  windowMs?: number
+  height?: number
+  ariaLabel?: string
+}
+
+export function TelemetryChart({
+  signalKeys,
+  windowMs = 7 * 60_000,
+  height = 272,
+  ariaLabel,
+}: TelemetryChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const catalogByKey = useTelemetryStore((state) => state.catalogByKey)
+  const keys = signalKeys.join('|')
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const chart = echarts.init(container, undefined, { renderer: 'canvas' })
+    const activeKeys = keys.split('|').filter(Boolean)
+    const reducedMotion = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    ).matches
+
+    const definitions = activeKeys.map((key) => catalogByKey[key])
+    const units = new Set(
+      definitions.map((definition) => definition?.unit ?? ''),
+    )
+    const sharedUnit = units.size === 1 ? [...units][0] : ''
+
+    chart.setOption({
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { left: 8, right: 12, top: 28, bottom: 4, containLabel: true },
+      legend: {
+        top: 0,
+        right: 0,
+        textStyle: { color: '#a1a1aa', fontFamily: 'IBM Plex Sans' },
+        data: activeKeys.map((key) => catalogByKey[key]?.label ?? key),
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(9, 9, 11, 0.92)',
+        borderColor: '#3f3f46',
+        textStyle: { color: '#fafafa' },
+        formatter: (params: unknown) =>
+          tooltipFormatter(params, activeKeys, catalogByKey),
+      },
+      xAxis: {
+        type: 'time',
+        axisLine: { lineStyle: { color: '#3f3f46' } },
+        axisLabel: {
+          color: '#71717a',
+          formatter: (value: number) => formatClock(value),
+        },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        axisLabel: {
+          color: '#71717a',
+          formatter: (value: number) =>
+            sharedUnit ? `${value} ${sharedUnit}` : String(value),
+        },
+        splitLine: { lineStyle: { color: '#27272a', type: 'dashed' } },
+      },
+      series: activeKeys.map((key, index) => {
+        const definition = catalogByKey[key]
+        const color =
+          definition?.color ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length]
+
+        return {
+          id: key,
+          name: definition?.label ?? key,
+          type: 'line',
+          smooth: false,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { color, width: 2 },
+          itemStyle: { color },
+          areaStyle:
+            index === 0 ? { color: `${color}1a`, origin: 'start' } : undefined,
+          data: [] as [number, number][],
+        }
+      }),
+    })
+
+    let frame: number | null = null
+    let lastDraw = 0
+
+    const draw = (now: number) => {
+      frame = requestAnimationFrame(draw)
+      if (now - lastDraw < REDRAW_INTERVAL_MS) return
+      lastDraw = now
+
+      const maxPoints = Math.max(120, Math.round(container.clientWidth * 1.2))
+      chart.setOption({
+        series: activeKeys.map((key) => ({
+          id: key,
+          data: telemetryBuffer.toSeries(key, windowMs, maxPoints),
+        })),
+      })
+    }
+
+    if (reducedMotion) {
+      // Fără animație de fundal: redesenăm mai rar, la interval fix.
+      const timer = setInterval(() => draw(performance.now()), 1000)
+      return () => {
+        clearInterval(timer)
+        chart.dispose()
+      }
+    }
+
+    frame = requestAnimationFrame(draw)
+
+    const resize = () => chart.resize()
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(resize)
+
+    resizeObserver?.observe(container)
+    window.addEventListener('resize', resize)
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', resize)
+      chart.dispose()
+    }
+  }, [catalogByKey, keys, windowMs])
+
   return (
-    <ReactEChartsCore
-      echarts={echarts}
-      style={{ height: 272 }}
-      option={{
-        animationDuration: 350,
-        backgroundColor: 'transparent',
-        grid: { left: 8, right: 8, top: 28, bottom: 4, containLabel: true },
-        legend: {
-          top: 0,
-          right: 0,
-          textStyle: { color: '#a1a1aa', fontFamily: 'IBM Plex Sans' },
-          data: ['Consum', 'Solar'],
-        },
-        tooltip: { trigger: 'axis' },
-        xAxis: {
-          type: 'category',
-          boundaryGap: false,
-          data: labels,
-          axisLine: { lineStyle: { color: '#3f3f46' } },
-          axisLabel: { color: '#71717a' },
-          axisTick: { show: false },
-        },
-        yAxis: {
-          type: 'value',
-          axisLabel: { color: '#71717a', formatter: '{value} W' },
-          splitLine: { lineStyle: { color: '#27272a', type: 'dashed' } },
-        },
-        series: [
-          {
-            name: 'Consum',
-            type: 'line',
-            smooth: true,
-            showSymbol: false,
-            data: [1530, 1480, 1640, 1580, 1710, 1660, 1590],
-            lineStyle: { color: '#60a5fa', width: 2 },
-            areaStyle: { color: 'rgba(59, 130, 246, 0.10)' },
-          },
-          {
-            name: 'Solar',
-            type: 'line',
-            smooth: true,
-            showSymbol: false,
-            data: [850, 910, 940, 980, 1010, 990, 1040],
-            lineStyle: { color: '#fbbf24', width: 2 },
-          },
-        ],
-      }}
-      opts={{ renderer: 'canvas' }}
-      aria-label="Grafic demonstrativ cu puterea consumată și puterea solară"
+    <div
+      ref={containerRef}
+      style={{ height }}
+      className="w-full"
+      role="img"
+      aria-label={ariaLabel ?? 'Grafic cu evoluția semnalelor de telemetrie'}
     />
   )
+}
+
+type TooltipParam = { seriesName: string; value: [number, number] }
+
+function tooltipFormatter(
+  params: unknown,
+  keys: string[],
+  catalogByKey: Record<
+    string,
+    { label: string; unit: string; decimals: number }
+  >,
+): string {
+  const items = (Array.isArray(params) ? params : [params]) as TooltipParam[]
+  if (items.length === 0) return ''
+
+  const time = formatClock(items[0].value[0])
+  const rows = items.map((item) => {
+    const key = keys.find(
+      (candidate) => catalogByKey[candidate]?.label === item.seriesName,
+    )
+    const definition = key ? catalogByKey[key] : undefined
+    const value = formatNumber(item.value[1], definition?.decimals ?? 1)
+    const unit = definition?.unit ? ` ${definition.unit}` : ''
+    return `${item.seriesName}: <b>${value}${unit}</b>`
+  })
+
+  return [time, ...rows].join('<br/>')
 }
