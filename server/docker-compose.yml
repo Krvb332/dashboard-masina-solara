@@ -1,0 +1,32 @@
+name: tucn-telemetry
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - '1883:1883'
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - '8000:8000'
+    environment:
+      TELEMETRY_MQTT_HOST: mosquitto
+      TELEMETRY_MQTT_PORT: '1883'
+      TELEMETRY_MQTT_TOPIC: 'solar/+/telemetry'
+      TELEMETRY_DB_PATH: /data/telemetry.db
+      TELEMETRY_WS_RATE_HZ: '10'
+      TELEMETRY_CORS_ORIGINS: 'http://localhost:5173,http://127.0.0.1:5173'
+    volumes:
+      - telemetry-data:/data
+
+volumes:
+  mosquitto-data:
+  telemetry-data:

@@ -1,151 +1,136 @@
-import { Battery, BatteryCharging, Gauge, Sun, Zap } from 'lucide-react'
+import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
-import { SignalCard } from '../../components/SignalCard'
-import { SignalTable } from '../../components/SignalTable'
 import { TelemetryChart } from '../../components/TelemetryChart'
-import { formatEnergy } from '../../lib/format'
-import { historyBuffer, useTelemetryStore } from '../../stores/telemetry-store'
+import { useSignalsByGroup } from '../../hooks/useSignal'
+import { formatDuration, formatNumber, NO_VALUE } from '../../lib/format'
+import { useTelemetryStore } from '../../stores/telemetry-store'
 
-const powerSeries = [
-  { signal: 'motor_power_w', label: 'Motor', color: '#60a5fa', area: true },
-  { signal: 'solar_power_w', label: 'Solar', color: '#fbbf24' },
-  { signal: 'battery_power_w', label: 'Baterie', color: '#34d399' },
-]
-
-const cellSeries = [
-  { signal: 'cell_voltage_min_v', label: 'Celulă minimă', color: '#f87171' },
-  { signal: 'cell_voltage_max_v', label: 'Celulă maximă', color: '#60a5fa' },
-]
-
+/**
+ * Zona 2 din documentul de arhitectură: energie și baterie.
+ *
+ * Include consumul pe tur, calculat din trecerile prin start/finiș - indicatorul
+ * după care se ia decizia de strategie într-o cursă solară.
+ */
 export function EnergyPage() {
+  const energySignals = useSignalsByGroup('energy')
+  const mppt = energySignals.filter((signal) => signal.key.startsWith('mppt'))
+  const rest = energySignals.filter(
+    (signal) => !signal.key.startsWith('mppt') && !signal.overview,
+  )
+
   return (
     <>
       <section
         className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Indicatori de energie"
       >
-        <SignalCard
-          signal="battery_soc_pct"
-          icon={BatteryCharging}
-          accent="emerald"
-        />
-        <SignalCard signal="battery_voltage_v" icon={Zap} />
-        <SignalCard signal="battery_current_a" icon={Gauge} />
-        <SignalCard signal="solar_power_w" icon={Sun} accent="amber" />
+        <MetricCard signalKey="battery_soc_pct" />
+        <MetricCard signalKey="battery_power_w" />
+        <MetricCard signalKey="solar_power_w" />
+        <MetricCard signalKey="energy_consumed_wh" />
       </section>
 
-      <EnergyCounters />
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel
-          title="Bilanț de putere"
-          subtitle="Consum, producție solară și fluxul din baterie"
-        >
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]">
+        <Panel title="Baterie: tensiune și curent" subtitle="Ultimele 7 minute">
           <TelemetryChart
-            series={powerSeries}
-            unit="W"
-            ariaLabel="Evoluția puterii pe motor, panouri solare și baterie"
+            signalKeys={['battery_voltage_v', 'battery_current_a']}
+            ariaLabel="Grafic cu tensiunea și curentul pachetului de baterii"
           />
         </Panel>
 
-        <Panel
-          title="Echilibrul celulelor"
-          subtitle="Tensiunea celulei minime față de cea maximă"
-        >
-          <TelemetryChart
-            series={cellSeries}
-            unit="V"
-            decimals={2}
-            ariaLabel="Evoluția tensiunii celulelor extreme"
-          />
+        <Panel title="Celule" subtitle="Extremele raportate de BMS">
+          <ul className="space-y-2">
+            <MetricRow signalKey="cell_voltage_min_v" />
+            <MetricRow signalKey="cell_voltage_max_v" />
+            <MetricRow signalKey="battery_temp_delta_c" />
+          </ul>
         </Panel>
+      </section>
+
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Panel title="Controlere MPPT" subtitle="Putere per controler">
+          <ul className="space-y-2">
+            {mppt.map((signal) => (
+              <MetricRow key={signal.key} signalKey={signal.key} />
+            ))}
+          </ul>
+          <div className="mt-4">
+            <TelemetryChart
+              signalKeys={mppt.map((signal) => signal.key)}
+              height={200}
+              ariaLabel="Grafic cu puterea fiecărui controler MPPT"
+            />
+          </div>
+        </Panel>
+
+        <LapTable />
       </section>
 
       <section className="mt-4">
-        <Panel title="Semnale de baterie și solar" subtitle="Valori curente">
-          <SignalTable groups={['baterie', 'solar']} />
+        <Panel title="Bilanț energetic" subtitle="Cumulat pe sesiunea curentă">
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {rest.map((signal) => (
+              <MetricRow key={signal.key} signalKey={signal.key} />
+            ))}
+          </ul>
         </Panel>
       </section>
     </>
   )
 }
 
-/**
- * Energia acumulată pe durata istoricului păstrat în memorie.
- *
- * Este o valoare orientativă, nu un contor de sesiune: bufferul are lungime
- * limitată, iar la reîncărcarea paginii repornește. Contorizarea reală a
- * sesiunii trebuie făcută pe server, unde există istoricul complet.
- */
-function EnergyCounters() {
-  useTelemetryStore((state) => state.historyVersion)
-
-  const consumed = historyBuffer.integrate('motor_power_w')
-  const harvested = historyBuffer.integrate('solar_power_w')
-  const net =
-    consumed !== null && harvested !== null ? consumed - harvested : null
+/** Consumul, durata și viteza medie pentru fiecare tur încheiat. */
+function LapTable() {
+  const laps = useTelemetryStore((state) => state.laps)
 
   return (
-    <section className="mt-4">
-      <Panel
-        title="Energie acumulată"
-        subtitle="Integrată pe istoricul păstrat în browser"
-        aside={
-          <span className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-400">
-            orientativ
-          </span>
-        }
-      >
-        <dl className="grid gap-4 sm:grid-cols-3">
-          <Counter
-            icon={Gauge}
-            label="Consumată de motor"
-            value={formatEnergy(consumed)}
-          />
-          <Counter
-            icon={Sun}
-            label="Produsă de panouri"
-            value={formatEnergy(harvested)}
-          />
-          <Counter
-            icon={Battery}
-            label="Bilanț net"
-            value={formatEnergy(net)}
-            hint={
-              net === null
-                ? undefined
-                : net > 0
-                  ? 'Se consumă din baterie'
-                  : 'Bateria se încarcă'
-            }
-          />
-        </dl>
-      </Panel>
-    </section>
-  )
-}
-
-function Counter({
-  icon: Icon,
-  label,
-  value,
-  hint,
-}: {
-  icon: typeof Battery
-  label: string
-  value: string
-  hint?: string
-}) {
-  return (
-    <div className="rounded-xl bg-black/15 p-4">
-      <dt className="flex items-center gap-2 text-xs tracking-wider text-zinc-500 uppercase">
-        <Icon size={14} aria-hidden="true" />
-        {label}
-      </dt>
-      <dd className="mt-2 text-2xl font-semibold text-white tabular-nums">
-        {value}
-      </dd>
-      {hint && <p className="mt-1 text-xs text-zinc-500">{hint}</p>}
-    </div>
+    <Panel
+      title="Consum pe tur"
+      subtitle={
+        laps.length === 0
+          ? 'Se completează la închiderea primului tur'
+          : `${laps.length} tururi înregistrate`
+      }
+      bodyClassName="overflow-x-auto"
+    >
+      {laps.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          Niciun tur încheiat de la pornirea dashboardului.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs tracking-wide text-zinc-500 uppercase">
+              <th className="pb-2 font-medium">Tur</th>
+              <th className="pb-2 font-medium">Durată</th>
+              <th className="pb-2 font-medium">Energie</th>
+              <th className="pb-2 font-medium">Viteză medie</th>
+            </tr>
+          </thead>
+          <tbody className="text-zinc-300">
+            {[...laps].reverse().map((lap) => (
+              <tr key={lap.lap} className="border-t border-white/5">
+                <td className="py-2 font-medium text-white">{lap.lap}</td>
+                <td className="py-2 tabular-nums">
+                  {lap.durationS === null
+                    ? NO_VALUE
+                    : formatDuration(lap.durationS)}
+                </td>
+                <td className="py-2 tabular-nums">
+                  {lap.energyWh === null
+                    ? NO_VALUE
+                    : `${formatNumber(lap.energyWh, 0)} Wh`}
+                </td>
+                <td className="py-2 tabular-nums">
+                  {lap.averageSpeedKph === null
+                    ? NO_VALUE
+                    : `${formatNumber(lap.averageSpeedKph, 1)} km/h`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Panel>
   )
 }

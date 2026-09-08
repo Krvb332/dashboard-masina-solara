@@ -1,153 +1,230 @@
-import { AlarmPanel } from '../../components/AlarmPanel'
+import { useQuery } from '@tanstack/react-query'
+import clsx from 'clsx'
+import { MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
-import { SignalTable } from '../../components/SignalTable'
-import { env } from '../../config/env'
-import { useAlarms, useFreshness } from '../../hooks/use-telemetry'
-import { formatAge, formatClock, formatNumber, NO_DATA } from '../../lib/format'
+import { fetchHealth } from '../../lib/api'
+import {
+  formatAge,
+  formatDateTime,
+  formatDuration,
+  formatNumber,
+  NO_VALUE,
+} from '../../lib/format'
+import type { QualityState } from '../../schemas/telemetry'
+import { useSignalsByGroup } from '../../hooks/useSignal'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
+/**
+ * Zona 3 (parțial) și diagnosticul lanțului de telemetrie.
+ *
+ * Aici se vede sănătatea fluxului, nu doar valorile: mesaje pierdute,
+ * duplicate, ordine incorectă și decalajul de ceas dintre mașină și server -
+ * exact ce cere punctul 9 din documentul de arhitectură.
+ */
 export function SystemPage() {
-  const alarms = useAlarms()
+  const thermalSignals = useSignalsByGroup('thermal')
+  const motorSignals = useSignalsByGroup('motor')
 
   return (
     <>
-      <section className="mt-7 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.6fr)]">
-        <Panel
-          title="Diagnostic legătură"
-          subtitle="Calitatea fluxului de telemetrie"
-        >
-          <LinkDiagnostics />
+      <section className="mt-7 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <StreamHealth />
+        <ServiceHealth />
+      </section>
+
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Panel title="Temperaturi" subtitle="Praguri definite în catalog">
+          <ul className="space-y-2">
+            {thermalSignals.map((signal) => (
+              <MetricRow key={signal.key} signalKey={signal.key} />
+            ))}
+          </ul>
         </Panel>
 
-        <Panel
-          title="Alarme active"
-          subtitle="Praguri locale și alarme de la server"
-        >
-          <AlarmPanel alarms={alarms} />
+        <Panel title="Motor și invertor" subtitle="Stare mecanică">
+          <ul className="space-y-2">
+            {motorSignals.map((signal) => (
+              <MetricRow key={signal.key} signalKey={signal.key} />
+            ))}
+          </ul>
         </Panel>
       </section>
 
       <section className="mt-4">
-        <Panel
-          title="Toate semnalele"
-          subtitle="Valoarea curentă și calitatea raportată pentru fiecare semnal"
-        >
-          <SignalTable />
-        </Panel>
+        <QualityTable />
       </section>
     </>
   )
 }
 
-function LinkDiagnostics() {
+function StreamHealth() {
   const stats = useTelemetryStore((state) => state.stats)
-  const meta = useTelemetryStore((state) => state.meta)
+  const invalidFrames = useTelemetryStore((state) => state.invalidFrames)
   const connection = useTelemetryStore((state) => state.connection)
-  const connectionDetail = useTelemetryStore((state) => state.connectionDetail)
-  const sourceKind = useTelemetryStore((state) => state.sourceKind)
-  const sourceLabel = useTelemetryStore((state) => state.sourceLabel)
-  const { ageMs, isEmpty } = useFreshness()
+  const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
 
-  const lossRate =
-    stats.received + stats.gaps > 0
-      ? (stats.gaps / (stats.received + stats.gaps)) * 100
-      : 0
+  const rows: [string, string][] = [
+    ['Stare conexiune', connection],
+    ['Mesaje primite', formatNumber(stats.received, 0)],
+    ['Mesaje pierdute', formatNumber(stats.dropped, 0)],
+    ['Duplicate', formatNumber(stats.duplicates, 0)],
+    ['Ordine incorectă', formatNumber(stats.out_of_order, 0)],
+    ['Respinse la validare (server)', formatNumber(stats.invalid, 0)],
+    ['Cadre invalide (browser)', formatNumber(invalidFrames, 0)],
+    ['Frecvență efectivă', `${formatNumber(stats.effective_hz, 1)} Hz`],
+    [
+      'Ultima secvență',
+      stats.last_sequence === null
+        ? NO_VALUE
+        : formatNumber(stats.last_sequence, 0),
+    ],
+    [
+      'Decalaj ceas mașină → server',
+      formatAge(Math.abs(stats.clock_offset_ms)),
+    ],
+    ['Decalaj ceas browser → server', formatAge(Math.abs(clockOffset))],
+  ]
 
   return (
-    <>
-      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Stat label="Sursă" value={sourceKind === 'simulator' ? 'Simulator' : 'Server'} hint={sourceLabel} />
-        <Stat label="Transport" value={connection} hint={connectionDetail} />
-        <Stat
-          label="Vechime ultim mesaj"
-          value={isEmpty ? NO_DATA : formatAge(ageMs)}
-        />
-        <Stat
-          label="Rată recepție"
-          value={`${formatNumber(stats.rateHz, 0)} Hz`}
-          hint={`interfața se actualizează la ${env.uiRefreshHz} Hz`}
-        />
-        <Stat label="Mesaje primite" value={formatNumber(stats.received, 0)} />
-        <Stat
-          label="Mesaje lipsă"
-          value={formatNumber(stats.gaps, 0)}
-          hint={`${formatNumber(lossRate, 2)}% pierdere`}
-          tone={stats.gaps > 0 ? 'warning' : 'default'}
-        />
-        <Stat
-          label="Ordine greșită"
-          value={formatNumber(stats.outOfOrder, 0)}
-          tone={stats.outOfOrder > 0 ? 'warning' : 'default'}
-        />
-        <Stat
-          label="Mesaje invalide"
-          value={formatNumber(stats.invalid, 0)}
-          hint={stats.lastInvalidReason ?? undefined}
-          tone={stats.invalid > 0 ? 'danger' : 'default'}
-        />
-        <Stat
-          label="Decalaj ceas"
-          value={
-            stats.clockSkewMs === null
-              ? NO_DATA
-              : `${formatNumber(stats.clockSkewMs, 0)} ms`
-          }
-          hint="mașină față de browser"
-          tone={
-            stats.clockSkewMs !== null && Math.abs(stats.clockSkewMs) > 1_000
-              ? 'warning'
-              : 'default'
-          }
-        />
+    <Panel title="Sănătatea fluxului" subtitle="Integritatea mesajelor primite">
+      <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-4 text-sm">
+            <dt className="text-zinc-500">{label}</dt>
+            <dd className="font-medium text-zinc-200 tabular-nums">{value}</dd>
+          </div>
+        ))}
       </dl>
-
-      {meta && (
-        <div className="mt-5 rounded-xl bg-black/20 p-4 font-mono text-xs text-zinc-400">
-          <p>
-            <span className="text-zinc-600">vehicle_id</span> {meta.vehicleId}
-          </p>
-          <p className="mt-1.5">
-            <span className="text-zinc-600">session_id</span> {meta.sessionId}
-          </p>
-          <p className="mt-1.5">
-            <span className="text-zinc-600">sequence</span> {meta.sequence}
-          </p>
-          <p className="mt-1.5">
-            <span className="text-zinc-600">timestamp</span>{' '}
-            {formatClock(meta.vehicleTime)}
-          </p>
-        </div>
-      )}
-    </>
+    </Panel>
   )
 }
 
-const toneClasses = {
-  default: 'text-white',
-  warning: 'text-amber-300',
-  danger: 'text-red-300',
+function ServiceHealth() {
+  const { data, isError } = useQuery({
+    queryKey: ['health'],
+    queryFn: fetchHealth,
+    refetchInterval: 5000,
+  })
+
+  return (
+    <Panel title="Serviciu telemetrie" subtitle="Verificat la 5 secunde">
+      {isError || !data ? (
+        <p className="text-sm text-rose-300">
+          Serviciul nu răspunde la /api/v1/health.
+        </p>
+      ) : (
+        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          <Row
+            label="Stare"
+            value={data.status === 'ok' ? 'operațional' : 'degradat'}
+          />
+          <Row label="Versiune schemă" value={String(data.schema_version)} />
+          <Row label="Uptime" value={formatDuration(data.uptime_s)} />
+          <Row
+            label="Ingest MQTT"
+            value={data.ingest.mqtt ? 'conectat' : 'inactiv'}
+          />
+          <Row
+            label="Ingest HTTP"
+            value={data.ingest.http ? 'activ' : 'inactiv'}
+          />
+          <Row
+            label="Ultimul mesaj"
+            value={
+              data.last_message_at
+                ? formatDateTime(data.last_message_at)
+                : NO_VALUE
+            }
+          />
+          <Row
+            label="Înregistrare"
+            value={data.recording_session_id ?? 'oprită'}
+          />
+        </dl>
+      )}
+    </Panel>
+  )
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-  tone = 'default',
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: keyof typeof toneClasses
-}) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-black/15 p-3">
-      <dt className="text-xs tracking-wider text-zinc-500 uppercase">{label}</dt>
-      <dd
-        className={`mt-1.5 text-lg font-semibold tabular-nums ${toneClasses[tone]}`}
-      >
-        {value}
-      </dd>
-      {hint && <p className="mt-1 truncate text-xs text-zinc-600">{hint}</p>}
+    <div className="flex justify-between gap-4 text-sm">
+      <dt className="text-zinc-500">{label}</dt>
+      <dd className="truncate font-medium text-zinc-200">{value}</dd>
     </div>
+  )
+}
+
+const qualityLabels: Record<QualityState, string> = {
+  valid: 'valid',
+  stale: 'învechit',
+  unavailable: 'indisponibil',
+  sensor_error: 'eroare senzor',
+}
+
+const qualityStyles: Record<QualityState, string> = {
+  valid: 'bg-emerald-500/15 text-emerald-300',
+  stale: 'bg-amber-500/15 text-amber-300',
+  unavailable: 'bg-zinc-700/40 text-zinc-400',
+  sensor_error: 'bg-rose-500/15 text-rose-300',
+}
+
+/** Starea fiecărui semnal din catalog - punctul 8 din documentul de arhitectură. */
+function QualityTable() {
+  const catalog = useTelemetryStore((state) => state.catalog)
+  const quality = useTelemetryStore((state) => state.quality)
+
+  return (
+    <Panel
+      title="Calitatea semnalelor"
+      subtitle="Fiecare semnal are o stare, nu doar o valoare"
+      bodyClassName="overflow-x-auto"
+    >
+      <table className="w-full min-w-[520px] text-sm">
+        <thead>
+          <tr className="text-left text-xs tracking-wide text-zinc-500 uppercase">
+            <th className="pb-2 font-medium">Semnal</th>
+            <th className="pb-2 font-medium">Grup</th>
+            <th className="pb-2 font-medium">Stare</th>
+            <th className="pb-2 font-medium">Vechime</th>
+          </tr>
+        </thead>
+        <tbody className="text-zinc-300">
+          {catalog.map((signal) => {
+            const entry = quality[signal.key]
+            const state = entry?.state ?? 'unavailable'
+
+            return (
+              <tr key={signal.key} className="border-t border-white/5">
+                <td className="py-2">
+                  <span className="font-medium text-zinc-200">
+                    {signal.label}
+                  </span>
+                  <span className="ml-2 font-mono text-xs text-zinc-600">
+                    {signal.key}
+                  </span>
+                </td>
+                <td className="py-2 text-zinc-500">{signal.group}</td>
+                <td className="py-2">
+                  <span
+                    className={clsx(
+                      'rounded px-2 py-0.5 text-xs font-medium',
+                      qualityStyles[state],
+                    )}
+                  >
+                    {qualityLabels[state]}
+                  </span>
+                </td>
+                <td className="py-2 tabular-nums">
+                  {entry && state !== 'unavailable'
+                    ? formatAge(entry.age_ms)
+                    : NO_VALUE}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </Panel>
   )
 }

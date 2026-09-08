@@ -1,214 +1,198 @@
 import { create } from 'zustand'
-import { env } from '../config/env'
-import { HistoryBuffer } from '../lib/history-buffer'
-import type { ConnectionStatus } from '../lib/telemetry-source'
+import type { ConnectionState } from '../lib/ws-client'
 import {
-  normalizeSignals,
+  EMPTY_STATS,
   type Alarm,
-  type NormalizedSignal,
-  type NormalizedSignals,
+  type Sample,
+  type SignalDefinition,
+  type SignalQuality,
+  type StreamStats,
   type TelemetryFrame,
 } from '../schemas/telemetry'
 
 /**
- * Istoricul este ținut în afara store-ului React (vezi `HistoryBuffer`).
- * Store-ul păstrează doar `historyVersion`, care se schimbă la fiecare
- * publicare și declanșează redesenarea graficelor.
+ * Starea „lentă" a aplicației: ce se afișează ca text, nu ca grafic.
+ *
+ * Seriile temporale NU trec pe aici - trăiesc în `lib/telemetry-buffer.ts`.
+ * Aici ajunge doar ultima stare cunoscută, actualizată de câteva ori pe
+ * secundă, pentru că nimeni nu citește cifre de zece ori pe secundă.
  */
-export const historyBuffer = new HistoryBuffer(env.historySize)
 
-export type FrameMeta = {
-  vehicleId: string
-  sessionId: string
-  sequence: number
-  /** Timestamp-ul generat de mașină. */
-  vehicleTime: number
-  /** Momentul recepției în browser — folosit pentru vechime și latență. */
-  receivedAt: number
+export type LapRecord = {
+  lap: number
+  /** Momentul închiderii turului, în milisecunde. */
+  finishedAt: number
+  durationS: number | null
+  energyWh: number | null
+  averageSpeedKph: number | null
 }
 
-export type TelemetryStats = {
-  received: number
-  invalid: number
-  /** Mesaje lipsă, deduse din discontinuitățile numărului de secvență. */
-  gaps: number
-  outOfOrder: number
-  /** Rata efectivă de recepție pe fir, calculată pe ultima secundă. */
-  rateHz: number
-  /** Diferența dintre ceasul mașinii și cel al browserului. */
-  clockSkewMs: number | null
-  lastInvalidReason: string | null
+type LapTracking = {
+  lap: number | null
+  startedAt: number | null
+  energyAtStart: number | null
+  distanceAtStart: number | null
 }
 
-type TelemetryState = {
-  connection: ConnectionStatus
-  connectionDetail: string
-  sourceKind: 'websocket' | 'simulator'
-  sourceLabel: string
+type TelemetryStore = {
+  connection: ConnectionState
+  vehicleId: string | null
+  sessionId: string | null
+  latest: Sample | null
+  quality: Record<string, SignalQuality>
+  alarms: Alarm[]
+  stats: StreamStats
+  serverTime: string | null
+  /** Diferența ceas browser - ceas server, în ms. Pozitiv = browserul e înainte. */
+  clientClockOffsetMs: number
+  recordingSessionId: string | null
+  invalidFrames: number
+  lastFrameAt: number | null
+  catalog: SignalDefinition[]
+  catalogByKey: Record<string, SignalDefinition>
+  laps: LapRecord[]
+  lapTracking: LapTracking
+  /** Alarme confirmate local, ca să nu mai atragă atenția vizual. */
+  acknowledged: string[]
 
-  signals: NormalizedSignals | null
-  meta: FrameMeta | null
-  historyVersion: number
-
-  /** Alarme calculate de server; cele locale sunt derivate în `useAlarms`. */
-  serverAlarms: Alarm[]
-  stats: TelemetryStats
-
-  /** Înregistrează un cadru la rata plină, fără să declanșeze randare. */
-  ingestFrame: (frame: TelemetryFrame, receivedAt?: number) => void
-  /** Publică în React ultimul cadru înregistrat. Apelat limitat, la `uiRefreshHz`. */
-  commit: () => void
-
-  setStatus: (status: ConnectionStatus, detail?: string) => void
-  setSource: (kind: 'websocket' | 'simulator', label: string) => void
-  setServerAlarms: (alarms: Alarm[]) => void
-  reportInvalid: (reason: string) => void
+  setConnection: (connection: ConnectionState) => void
+  setCatalog: (signals: SignalDefinition[]) => void
+  applyFrame: (frame: TelemetryFrame) => void
+  countInvalidFrame: () => void
+  acknowledgeAlarm: (alarmId: string) => void
   reset: () => void
 }
 
-const createStats = (): TelemetryStats => ({
-  received: 0,
-  invalid: 0,
-  gaps: 0,
-  outOfOrder: 0,
-  rateHz: 0,
-  clockSkewMs: null,
-  lastInvalidReason: null,
-})
-
-/**
- * Acumulator mutabil, în afara stării React.
- *
- * Cadrele sosesc potențial la 50–100 Hz, dar interfața nu are nevoie să se
- * redeseneze pentru fiecare. Istoricul, statisticile și detecția golurilor se
- * actualizează pentru fiecare cadru; doar publicarea către React este limitată.
- */
-type Pending = {
-  signals: NormalizedSignals | null
-  meta: FrameMeta | null
-  stats: TelemetryStats
-  lastSequence: number | null
-  arrivals: number[]
-  dirty: boolean
+const initialLapTracking: LapTracking = {
+  lap: null,
+  startedAt: null,
+  energyAtStart: null,
+  distanceAtStart: null,
 }
 
-const pending: Pending = {
-  signals: null,
-  meta: null,
-  stats: createStats(),
-  lastSequence: null,
-  arrivals: [],
-  dirty: false,
-}
+export const useTelemetryStore = create<TelemetryStore>((set) => ({
+  connection: 'connecting',
+  vehicleId: null,
+  sessionId: null,
+  latest: null,
+  quality: {},
+  alarms: [],
+  stats: EMPTY_STATS,
+  serverTime: null,
+  clientClockOffsetMs: 0,
+  recordingSessionId: null,
+  invalidFrames: 0,
+  lastFrameAt: null,
+  catalog: [],
+  catalogByKey: {},
+  laps: [],
+  lapTracking: initialLapTracking,
+  acknowledged: [],
 
-function measureRate(receivedAt: number): number {
-  pending.arrivals.push(receivedAt)
-  const cutoff = receivedAt - 1_000
-  while (pending.arrivals.length > 0 && pending.arrivals[0]! < cutoff) {
-    pending.arrivals.shift()
-  }
-  return pending.arrivals.length
-}
+  setConnection: (connection) => set({ connection }),
 
-export const useTelemetryStore = create<TelemetryState>((set) => ({
-  connection: 'idle',
-  connectionDetail: '',
-  sourceKind: env.telemetrySource,
-  sourceLabel: '',
-
-  signals: null,
-  meta: null,
-  historyVersion: 0,
-
-  serverAlarms: [],
-  stats: createStats(),
-
-  ingestFrame: (frame, receivedAt = Date.now()) => {
-    const signals = normalizeSignals(frame.signals)
-    const vehicleTime = Date.parse(frame.timestamp)
-
-    historyBuffer.push(receivedAt, signals)
-
-    if (pending.lastSequence !== null) {
-      const step = frame.sequence - pending.lastSequence
-      if (step > 1) pending.stats.gaps += step - 1
-      else if (step <= 0) pending.stats.outOfOrder += 1
-    }
-    pending.lastSequence = frame.sequence
-
-    pending.stats.received += 1
-    pending.stats.rateHz = measureRate(receivedAt)
-    pending.stats.clockSkewMs = Number.isFinite(vehicleTime)
-      ? receivedAt - vehicleTime
-      : null
-
-    pending.signals = signals
-    pending.meta = {
-      vehicleId: frame.vehicle_id,
-      sessionId: frame.session_id,
-      sequence: frame.sequence,
-      vehicleTime,
-      receivedAt,
-    }
-    pending.dirty = true
-  },
-
-  commit: () => {
-    if (!pending.dirty) return
-    pending.dirty = false
+  setCatalog: (signals) =>
     set({
-      signals: pending.signals,
-      meta: pending.meta,
-      historyVersion: historyBuffer.version,
-      stats: { ...pending.stats },
-    })
-  },
+      catalog: signals,
+      catalogByKey: Object.fromEntries(
+        signals.map((signal) => [signal.key, signal]),
+      ),
+    }),
 
-  setStatus: (connection, detail = '') =>
-    set({ connection, connectionDetail: detail }),
+  applyFrame: (frame) =>
+    set((state) => {
+      const serverMs = new Date(frame.server_time).getTime()
 
-  setSource: (sourceKind, sourceLabel) => set({ sourceKind, sourceLabel }),
+      return {
+        vehicleId: frame.vehicle_id,
+        sessionId: frame.session_id,
+        latest: frame.latest,
+        quality: frame.quality,
+        alarms: frame.alarms,
+        stats: frame.stats,
+        serverTime: frame.server_time,
+        clientClockOffsetMs: Number.isFinite(serverMs)
+          ? Date.now() - serverMs
+          : state.clientClockOffsetMs,
+        recordingSessionId: frame.recording_session_id,
+        lastFrameAt: Date.now(),
+        ...trackLaps(state, frame.latest),
+      }
+    }),
 
-  setServerAlarms: (serverAlarms) => set({ serverAlarms }),
+  countInvalidFrame: () =>
+    set((state) => ({ invalidFrames: state.invalidFrames + 1 })),
 
-  reportInvalid: (reason) => {
-    pending.stats.invalid += 1
-    pending.stats.lastInvalidReason = reason
-    pending.dirty = true
-  },
+  acknowledgeAlarm: (alarmId) =>
+    set((state) =>
+      state.acknowledged.includes(alarmId)
+        ? state
+        : { acknowledged: [...state.acknowledged, alarmId] },
+    ),
 
-  reset: () => {
-    historyBuffer.clear()
-    pending.signals = null
-    pending.meta = null
-    pending.stats = createStats()
-    pending.lastSequence = null
-    pending.arrivals = []
-    pending.dirty = false
-
+  reset: () =>
     set({
-      signals: null,
-      meta: null,
-      serverAlarms: [],
-      stats: createStats(),
-      historyVersion: historyBuffer.version,
-    })
-  },
+      latest: null,
+      quality: {},
+      alarms: [],
+      stats: EMPTY_STATS,
+      laps: [],
+      lapTracking: initialLapTracking,
+      acknowledged: [],
+      invalidFrames: 0,
+    }),
 }))
 
 /**
- * Citirea unui semnal. Returnează întotdeauna aceeași formă, cu `value: null`
- * când semnalul lipsește — apelanții nu trebuie să distingă între „semnal
- * necunoscut" și „fără valoare".
+ * Închide un tur când `lap_number` crește și reține consumul, durata și viteza
+ * medie. Fără asta, „consum pe tur" din documentul de arhitectură ar cere fie un
+ * endpoint dedicat, fie recalcularea întregului istoric la fiecare cadru.
  */
-export const MISSING_SIGNAL: NormalizedSignal = {
-  value: null,
-  quality: 'unavailable',
-}
+function trackLaps(
+  state: TelemetryStore,
+  sample: Sample | null,
+): Partial<TelemetryStore> {
+  if (!sample) return {}
 
-export function selectSignal(
-  signals: NormalizedSignals | null,
-  key: string,
-): NormalizedSignal {
-  return signals?.[key] ?? MISSING_SIGNAL
+  const lap = sample.signals.lap_number
+  if (lap === undefined) return {}
+
+  const time = new Date(sample.server_received_at).getTime()
+  const energy = sample.signals.energy_consumed_wh ?? null
+  const distance = sample.signals.distance_km ?? null
+  const tracking = state.lapTracking
+
+  const restart = {
+    lap,
+    startedAt: time,
+    energyAtStart: energy,
+    distanceAtStart: distance,
+  }
+
+  if (tracking.lap === null) return { lapTracking: restart }
+  if (lap <= tracking.lap) return {}
+
+  const durationS =
+    tracking.startedAt === null ? null : (time - tracking.startedAt) / 1000
+  const energyWh =
+    energy === null || tracking.energyAtStart === null
+      ? null
+      : energy - tracking.energyAtStart
+  const distanceKm =
+    distance === null || tracking.distanceAtStart === null
+      ? null
+      : distance - tracking.distanceAtStart
+
+  const record: LapRecord = {
+    lap: tracking.lap,
+    finishedAt: time,
+    durationS,
+    energyWh,
+    averageSpeedKph:
+      distanceKm !== null && durationS !== null && durationS > 0
+        ? (distanceKm / durationS) * 3600
+        : null,
+  }
+
+  return { laps: [...state.laps, record].slice(-60), lapTracking: restart }
 }

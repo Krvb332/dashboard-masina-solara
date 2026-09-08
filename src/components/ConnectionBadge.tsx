@@ -1,122 +1,94 @@
 import clsx from 'clsx'
-import { useFreshness } from '../hooks/use-telemetry'
-import { formatAge } from '../lib/format'
+import { Radio, RotateCw, TriangleAlert, WifiOff } from 'lucide-react'
+import { useTick } from '../hooks/useTick'
+import { formatAge, formatNumber } from '../lib/format'
 import { useTelemetryStore } from '../stores/telemetry-store'
 
-type Presentation = {
-  label: string
-  className: string
-  dotClassName: string
-  pulse: boolean
-}
-
 /**
- * Starea legăturii, combinând transportul cu vechimea datelor.
+ * Starea reală a legăturii cu mașina.
  *
- * Un socket deschis nu înseamnă date proaspete: dacă mașina tace, transportul
- * rămâne „conectat" dar operatorul trebuie să vadă imediat că valorile de pe
- * ecran sunt vechi. De aceea vechimea are prioritate față de starea socketului.
+ * Arată nu doar „conectat", ci și vechimea ultimului mesaj și câte mesaje s-au
+ * pierdut. Un dashboard care spune „conectat" în timp ce datele au înghețat de
+ * treizeci de secunde este mai periculos decât unul care nu spune nimic.
  */
-function present(
-  connection: string,
-  isStale: boolean,
-  isLost: boolean,
-  isEmpty: boolean,
-): Presentation {
-  if (connection === 'connected' && isLost) {
-    return {
-      label: 'Fără date',
-      className: 'border-red-400/30 bg-red-400/10 text-red-200',
-      dotClassName: 'bg-red-400',
-      pulse: false,
-    }
-  }
-  if (connection === 'connected' && isStale) {
-    return {
-      label: 'Date învechite',
-      className: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
-      dotClassName: 'bg-amber-400',
-      pulse: false,
-    }
-  }
 
-  switch (connection) {
-    case 'connected':
-      return {
-        label: isEmpty ? 'Se așteaptă date' : 'Telemetrie conectată',
-        className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
-        dotClassName: 'bg-emerald-400',
-        pulse: !isEmpty,
-      }
-    case 'connecting':
-      return {
-        label: 'Se conectează',
-        className: 'border-blue-400/25 bg-blue-400/10 text-blue-200',
-        dotClassName: 'bg-blue-400',
-        pulse: true,
-      }
-    case 'reconnecting':
-      return {
-        label: 'Reconectare',
-        className: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
-        dotClassName: 'bg-amber-400',
-        pulse: true,
-      }
-    case 'error':
-      return {
-        label: 'Eroare de conexiune',
-        className: 'border-red-400/30 bg-red-400/10 text-red-200',
-        dotClassName: 'bg-red-400',
-        pulse: false,
-      }
-    default:
-      return {
-        label: 'Deconectat',
-        className: 'border-white/10 bg-white/5 text-zinc-300',
-        dotClassName: 'bg-zinc-500',
-        pulse: false,
-      }
-  }
-}
+const labels = {
+  connecting: 'Se conectează',
+  connected: 'Telemetrie conectată',
+  reconnecting: 'Reconectare',
+  disconnected: 'Deconectat',
+} as const
 
-export function ConnectionBadge() {
+const icons = {
+  connecting: RotateCw,
+  connected: Radio,
+  reconnecting: RotateCw,
+  disconnected: WifiOff,
+} as const
+
+/** Peste acest prag, legătura e „conectată" dar datele sunt vechi. */
+const STALE_LINK_MS = 2000
+
+export function ConnectionBadge({ compact = false }: { compact?: boolean }) {
   const connection = useTelemetryStore((state) => state.connection)
-  const { ageMs, isStale, isLost, isEmpty } = useFreshness()
-  const { label, className, dotClassName, pulse } = present(
-    connection,
-    isStale,
-    isLost,
-    isEmpty,
-  )
+  const latest = useTelemetryStore((state) => state.latest)
+  const stats = useTelemetryStore((state) => state.stats)
+  const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
+  const now = useTick(500)
+
+  const lastMessageMs = latest
+    ? new Date(latest.server_received_at).getTime()
+    : null
+  const ageMs =
+    lastMessageMs === null
+      ? null
+      : Math.max(0, now - clockOffset - lastMessageMs)
+
+  const stale = ageMs !== null && ageMs > STALE_LINK_MS
+  const healthy = connection === 'connected' && !stale && lastMessageMs !== null
+  const Icon =
+    stale && connection === 'connected' ? TriangleAlert : icons[connection]
+
+  const tone = healthy
+    ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+    : connection === 'disconnected'
+      ? 'border-rose-400/25 bg-rose-400/10 text-rose-200'
+      : 'border-amber-400/20 bg-amber-400/10 text-amber-100'
 
   return (
     <div
       className={clsx(
         'flex min-h-11 items-center gap-3 rounded-xl border px-4 text-sm',
-        className,
+        tone,
       )}
       role="status"
+      data-connection={connection}
+      data-stale={stale ? 'true' : 'false'}
     >
-      <span className="relative flex size-2.5">
-        {pulse && (
-          <span
-            className={clsx(
-              'absolute inline-flex size-full animate-ping rounded-full opacity-50',
-              dotClassName,
-            )}
-          />
-        )}
-        <span
-          className={clsx(
-            'relative inline-flex size-2.5 rounded-full',
-            dotClassName,
-          )}
-        />
+      {healthy ? (
+        <span className="relative flex size-2.5" aria-hidden="true">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+          <span className="relative inline-flex size-2.5 rounded-full bg-emerald-400" />
+        </span>
+      ) : (
+        <Icon size={16} aria-hidden="true" />
+      )}
+
+      <span className="font-medium">
+        {stale && connection === 'connected'
+          ? 'Date învechite'
+          : labels[connection]}
       </span>
-      <span>{label}</span>
-      {!isEmpty && (
-        <span className="text-xs tabular-nums opacity-70">
-          {formatAge(ageMs)}
+
+      {!compact && (
+        <span className="hidden text-xs text-current/70 sm:inline">
+          {lastMessageMs === null
+            ? 'niciun mesaj primit'
+            : `ultimul mesaj acum ${formatAge(ageMs)}`}
+          {stats.dropped > 0 ? ` · ${stats.dropped} pierdute` : ''}
+          {stats.effective_hz > 0
+            ? ` · ${formatNumber(stats.effective_hz, 1)} Hz`
+            : ''}
         </span>
       )}
     </div>

@@ -6,13 +6,20 @@ import {
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-// Build-ul ESM al pachetului. Varianta `lib/core` este CommonJS și, prin
-// interop-ul din browser, ajunge ca obiect de modul, nu ca o componentă —
-// React respinge asta cu „Element type is invalid".
-import ReactEChartsCore from 'echarts-for-react/esm/core'
-import { useMemo } from 'react'
-import { formatNumber } from '../lib/format'
-import { historyBuffer, useTelemetryStore } from '../stores/telemetry-store'
+import { useEffect, useRef } from 'react'
+import { formatClock, formatNumber } from '../lib/format'
+import { telemetryBuffer } from '../lib/telemetry-buffer'
+import { useTelemetryStore } from '../stores/telemetry-store'
+
+/**
+ * Graficul fluxului live.
+ *
+ * Datele vin direct din bufferul de serii temporale, într-o buclă
+ * `requestAnimationFrame`, ocolind complet React: la 10 Hz, o re-randare React
+ * pentru fiecare punct ar costa mult mai mult decât desenarea propriu-zisă.
+ * Numărul de puncte este redus la lățimea disponibilă în pixeli, păstrând
+ * minimul și maximul fiecărui interval, ca vârfurile scurte să nu dispară.
+ */
 
 echarts.use([
   LineChart,
@@ -22,70 +29,69 @@ echarts.use([
   CanvasRenderer,
 ])
 
-export type ChartSeries = {
-  signal: string
-  label: string
-  color: string
-  /** Umple zona de sub linie. Recomandat pentru cel mult o serie. */
-  area?: boolean
-}
+/** Cât de des redesenăm. Mai des decât atât nu percepe ochiul pe un grafic. */
+const REDRAW_INTERVAL_MS = 200
+const FALLBACK_COLORS = ['#60a5fa', '#fbbf24', '#34d399', '#f472b6', '#a78bfa']
 
 type TelemetryChartProps = {
-  series: ChartSeries[]
-  /** Fereastra de timp afișată, în secunde. */
-  windowSeconds?: number
-  unit?: string
-  decimals?: number
+  signalKeys: string[]
+  /** Fereastra vizibilă, în milisecunde. */
+  windowMs?: number
   height?: number
-  ariaLabel: string
+  ariaLabel?: string
 }
 
-/**
- * Grafic de serii temporale alimentat din `historyBuffer`.
- *
- * Se reabonează la `historyVersion`, nu la datele în sine: bufferul este
- * mutabil, deci versiunea este singurul indiciu de schimbare. Eșantionarea LTTB
- * păstrează forma curbei reducând punctele desenate la lățimea în pixeli.
- */
 export function TelemetryChart({
-  series,
-  windowSeconds = 420,
-  unit = '',
-  decimals = 0,
+  signalKeys,
+  windowMs = 7 * 60_000,
   height = 272,
   ariaLabel,
 }: TelemetryChartProps) {
-  const version = useTelemetryStore((state) => state.historyVersion)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const catalogByKey = useTelemetryStore((state) => state.catalogByKey)
+  const keys = signalKeys.join('|')
 
-  const option = useMemo(() => {
-    const keys = series.map((entry) => entry.signal)
-    const { timestamps, series: columns } = historyBuffer.window(
-      keys,
-      windowSeconds,
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const chart = echarts.init(container, undefined, { renderer: 'canvas' })
+    const activeKeys = keys.split('|').filter(Boolean)
+    const reducedMotion = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    ).matches
+
+    const definitions = activeKeys.map((key) => catalogByKey[key])
+    const units = new Set(
+      definitions.map((definition) => definition?.unit ?? ''),
     )
+    const sharedUnit = units.size === 1 ? [...units][0] : ''
 
-    return {
+    chart.setOption({
       animation: false,
       backgroundColor: 'transparent',
-      grid: { left: 8, right: 8, top: 28, bottom: 4, containLabel: true },
+      grid: { left: 8, right: 12, top: 28, bottom: 4, containLabel: true },
       legend: {
         top: 0,
         right: 0,
         textStyle: { color: '#a1a1aa', fontFamily: 'IBM Plex Sans' },
-        data: series.map((entry) => entry.label),
+        data: activeKeys.map((key) => catalogByKey[key]?.label ?? key),
       },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: '#18181b',
+        backgroundColor: 'rgba(9, 9, 11, 0.92)',
         borderColor: '#3f3f46',
-        textStyle: { color: '#e4e4e7' },
-        valueFormatter: (value: number | null) =>
-          value === null ? '—' : `${formatNumber(value, decimals)} ${unit}`.trim(),
+        textStyle: { color: '#fafafa' },
+        formatter: (params: unknown) =>
+          tooltipFormatter(params, activeKeys, catalogByKey),
       },
       xAxis: {
         type: 'time',
         axisLine: { lineStyle: { color: '#3f3f46' } },
-        axisLabel: { color: '#71717a', hideOverlap: true },
+        axisLabel: {
+          color: '#71717a',
+          formatter: (value: number) => formatClock(value),
+        },
         axisTick: { show: false },
       },
       yAxis: {
@@ -94,42 +100,110 @@ export function TelemetryChart({
         axisLabel: {
           color: '#71717a',
           formatter: (value: number) =>
-            unit ? `${formatNumber(value, decimals)} ${unit}` : formatNumber(value, decimals),
+            sharedUnit ? `${value} ${sharedUnit}` : String(value),
         },
         splitLine: { lineStyle: { color: '#27272a', type: 'dashed' } },
       },
-      series: series.map((entry) => ({
-        name: entry.label,
-        type: 'line' as const,
-        smooth: false,
-        showSymbol: false,
-        sampling: 'lttb' as const,
-        // Golurile de comunicație rămân goluri; nu unim peste ele.
-        connectNulls: false,
-        data: timestamps.map((timestamp, index) => [
-          timestamp,
-          columns[entry.signal]?.[index] ?? null,
-        ]),
-        lineStyle: { color: entry.color, width: 2 },
-        itemStyle: { color: entry.color },
-        ...(entry.area
-          ? { areaStyle: { color: `${entry.color}1f` } }
-          : {}),
-      })),
+      series: activeKeys.map((key, index) => {
+        const definition = catalogByKey[key]
+        const color =
+          definition?.color ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length]
+
+        return {
+          id: key,
+          name: definition?.label ?? key,
+          type: 'line',
+          smooth: false,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { color, width: 2 },
+          itemStyle: { color },
+          areaStyle:
+            index === 0 ? { color: `${color}1a`, origin: 'start' } : undefined,
+          data: [] as [number, number][],
+        }
+      }),
+    })
+
+    let frame: number | null = null
+    let lastDraw = 0
+
+    const draw = (now: number) => {
+      frame = requestAnimationFrame(draw)
+      if (now - lastDraw < REDRAW_INTERVAL_MS) return
+      lastDraw = now
+
+      const maxPoints = Math.max(120, Math.round(container.clientWidth * 1.2))
+      chart.setOption({
+        series: activeKeys.map((key) => ({
+          id: key,
+          data: telemetryBuffer.toSeries(key, windowMs, maxPoints),
+        })),
+      })
     }
-    // `version` este dependența reală: bufferul se modifică pe loc.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, series, windowSeconds, unit, decimals])
+
+    if (reducedMotion) {
+      // Fără animație de fundal: redesenăm mai rar, la interval fix.
+      const timer = setInterval(() => draw(performance.now()), 1000)
+      return () => {
+        clearInterval(timer)
+        chart.dispose()
+      }
+    }
+
+    frame = requestAnimationFrame(draw)
+
+    const resize = () => chart.resize()
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(resize)
+
+    resizeObserver?.observe(container)
+    window.addEventListener('resize', resize)
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', resize)
+      chart.dispose()
+    }
+  }, [catalogByKey, keys, windowMs])
 
   return (
-    <ReactEChartsCore
-      echarts={echarts}
+    <div
+      ref={containerRef}
       style={{ height }}
-      option={option}
-      notMerge={false}
-      lazyUpdate
-      opts={{ renderer: 'canvas' }}
-      aria-label={ariaLabel}
+      className="w-full"
+      role="img"
+      aria-label={ariaLabel ?? 'Grafic cu evoluția semnalelor de telemetrie'}
     />
   )
+}
+
+type TooltipParam = { seriesName: string; value: [number, number] }
+
+function tooltipFormatter(
+  params: unknown,
+  keys: string[],
+  catalogByKey: Record<
+    string,
+    { label: string; unit: string; decimals: number }
+  >,
+): string {
+  const items = (Array.isArray(params) ? params : [params]) as TooltipParam[]
+  if (items.length === 0) return ''
+
+  const time = formatClock(items[0].value[0])
+  const rows = items.map((item) => {
+    const key = keys.find(
+      (candidate) => catalogByKey[candidate]?.label === item.seriesName,
+    )
+    const definition = key ? catalogByKey[key] : undefined
+    const value = formatNumber(item.value[1], definition?.decimals ?? 1)
+    const unit = definition?.unit ? ` ${definition.unit}` : ''
+    return `${item.seriesName}: <b>${value}${unit}</b>`
+  })
+
+  return [time, ...rows].join('<br/>')
 }

@@ -1,78 +1,141 @@
 import { render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DashboardPage } from './DashboardPage'
-import type { TelemetryFrame } from '../../schemas/telemetry'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  makeQuality,
+  makeSignal,
+  resetTelemetryStore,
+  seedTelemetry,
+} from '../../test/fixtures'
 import { useTelemetryStore } from '../../stores/telemetry-store'
+import { DashboardPage } from './DashboardPage'
 
+// Canvas și ECharts nu au sens în jsdom; testăm compoziția paginii, nu desenul.
 vi.mock('../../components/TelemetryChart', () => ({
   TelemetryChart: () => <div data-testid="telemetry-chart" />,
 }))
+vi.mock('../../components/TrackMap', () => ({
+  TrackMap: () => <div data-testid="track-map" />,
+}))
 
-function publish(signals: TelemetryFrame['signals'], sequence = 1) {
-  const store = useTelemetryStore.getState()
-  store.ingestFrame(
-    {
-      schema_version: 1,
-      vehicle_id: 'tucn-solar-01',
-      session_id: 'test',
-      timestamp: new Date().toISOString(),
-      sequence,
-      signals,
-    },
-    Date.now(),
+const catalog = [
+  makeSignal({
+    key: 'vehicle_speed_kph',
+    label: 'Viteză',
+    unit: 'km/h',
+    overview: true,
+  }),
+  makeSignal({
+    key: 'battery_soc_pct',
+    label: 'Stare baterie',
+    unit: '%',
+    group: 'energy',
+    overview: true,
+    warn_below: 25,
+    crit_below: 15,
+  }),
+  makeSignal({
+    key: 'motor_temp_c',
+    label: 'Temp. motor',
+    unit: '°C',
+    group: 'thermal',
+  }),
+]
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <DashboardPage />
+    </MemoryRouter>,
   )
-  store.commit()
 }
 
-describe('DashboardPage', () => {
-  beforeEach(() => {
-    useTelemetryStore.getState().reset()
-  })
+afterEach(resetTelemetryStore)
 
-  it('afișează valorile primite de la telemetrie', () => {
-    publish({
-      vehicle_speed_kph: 63.8,
-      battery_soc_pct: 76.2,
-      solar_power_w: 1_040,
-      cell_temp_max_c: 41.7,
+describe('DashboardPage', () => {
+  it('construiește cardurile din semnalele marcate `overview` în catalog', () => {
+    seedTelemetry(catalog, {
+      vehicle_speed_kph: makeQuality('valid', 63.8),
+      battery_soc_pct: makeQuality('valid', 76.2),
     })
 
-    render(<DashboardPage />)
+    renderPage()
 
+    expect(screen.getByText('Viteză')).toBeInTheDocument()
     expect(screen.getByText('63,8 km/h')).toBeInTheDocument()
-    expect(screen.getByText('76,2 %')).toBeInTheDocument()
-    expect(screen.getByTestId('telemetry-chart')).toBeInTheDocument()
+    expect(screen.getByText('76,2%')).toBeInTheDocument()
+    // `motor_temp_c` nu este marcat `overview`, deci nu apare printre carduri.
+    expect(screen.queryByText('Temp. motor')).not.toBeInTheDocument()
   })
 
-  it('afișează un marcaj de „fără date" înainte de primul mesaj', () => {
-    render(<DashboardPage />)
+  it('afișează un schelet cât timp catalogul nu a sosit', () => {
+    renderPage()
 
-    // Toate cele patru carduri sunt goale — niciunul nu trebuie să arate zero.
-    expect(screen.getAllByText('—')).toHaveLength(4)
-    expect(screen.queryByText('0 W')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Se încarcă').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Viteză')).not.toBeInTheDocument()
   })
 
-  it('distinge zero de lipsa datelor', () => {
-    publish({ solar_power_w: 0 })
+  it('nu afișează valori pentru semnale fără date proaspete', () => {
+    seedTelemetry(catalog, {
+      vehicle_speed_kph: makeQuality('stale', 63.8, 9000),
+      battery_soc_pct: makeQuality('unavailable', null),
+    })
 
-    render(<DashboardPage />)
+    renderPage()
 
-    expect(screen.getByText('0 W')).toBeInTheDocument()
+    expect(screen.queryByText('63,8 km/h')).not.toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    expect(screen.getByText(/Ultima valoare acum/)).toBeInTheDocument()
+    expect(screen.getByText('Fără date de la mașină')).toBeInTheDocument()
   })
 
-  it('ridică alarmă când o valoare depășește pragul critic', () => {
-    publish({ battery_soc_pct: 8 })
+  it('include graficul, harta și panoul de alarme', () => {
+    seedTelemetry(catalog)
 
-    render(<DashboardPage />)
+    renderPage()
 
-    expect(screen.getByText(/Baterie sub prag/)).toBeInTheDocument()
+    expect(screen.getAllByTestId('telemetry-chart')).toHaveLength(2)
+    expect(screen.getByTestId('track-map')).toBeInTheDocument()
+    expect(screen.getByText('Nicio alarmă activă.')).toBeInTheDocument()
   })
 
-  it('anunță că nu există alarme când totul este în limite', () => {
-    publish({ battery_soc_pct: 76.2, motor_temp_c: 45 })
+  it('listează alarmele active, cele critice primele', () => {
+    seedTelemetry(catalog)
+    useTelemetryStore.setState({
+      alarms: [
+        {
+          id: 'a1',
+          key: 'motor_temp_c:warn_high',
+          label: 'Temp. motor',
+          severity: 'warning',
+          message: 'Temperatura motorului este ridicată.',
+          signal_key: 'motor_temp_c',
+          value: 95,
+          threshold: 90,
+          raised_at: '2026-07-24T10:00:00Z',
+          cleared_at: null,
+          active: true,
+        },
+        {
+          id: 'a2',
+          key: 'link_lost',
+          label: 'Legătură pierdută',
+          severity: 'critical',
+          message: 'Nu s-au mai primit mesaje de la mașină.',
+          signal_key: null,
+          value: null,
+          threshold: 2,
+          raised_at: '2026-07-24T10:00:05Z',
+          cleared_at: null,
+          active: true,
+        },
+      ],
+    })
 
-    render(<DashboardPage />)
+    renderPage()
 
-    expect(screen.getByText('Nicio alarmă activă')).toBeInTheDocument()
+    const items = screen.getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('Legătură pierdută')
+    expect(items[1]).toHaveTextContent('Temp. motor')
   })
 })

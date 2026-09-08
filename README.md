@@ -1,28 +1,86 @@
-# Dashboard Mașină Solară · TUCN Racing Team
+# Dashboard Mașină Solară — TUCN Racing Team
 
-Interfață web local-first pentru monitorizarea în timp real a telemetriei mașinii solare în pitlane.
+Sistem local-first pentru monitorizarea în timp real a telemetriei unei mașini solare din pitlane: serviciu de telemetrie, simulator și dashboard web.
+
+## Arhitectură
+
+```text
+mașină / simulator ──MQTT (QoS 1)──> broker Mosquitto ──> serviciu telemetrie ──WebSocket──> dashboard
+                   └──HTTP (rezervă)────────────────────>│                    └──SQLite────> istoric sesiuni
+```
+
+Serviciul validează mesajele, urmărește integritatea fluxului (mesaje lipsă, duplicate, ordine incorectă), calculează alarmele cu histerezis, înregistrează sesiunile și retransmite starea către browser la un ritm redus, controlat.
+
+Detaliile de proiectare sunt în [`docs/recomandari-arhitectura-dashboard-masina-solara.md`](docs/recomandari-arhitectura-dashboard-masina-solara.md).
 
 ## Stack
 
-- React 19, TypeScript și Vite
-- Tailwind CSS
-- React Router
-- TanStack Query și Zustand
-- Zod pentru validarea mesajelor
-- Apache ECharts pentru grafice
-- Vitest și Testing Library
-- Oxlint și Prettier
+**Frontend:** React 19, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, Zustand, Zod, Apache ECharts, Vitest, Oxlint.
 
-## Pornire locală
+**Backend:** Python 3.13, FastAPI, aiomqtt, aiosqlite, pytest.
+
+## Pornire rapidă
+
+Trei terminale. Fără broker, simulatorul trimite direct prin HTTP — util în dezvoltare.
 
 ```bash
-npm install
-npm run dev
+cd server && python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"
 ```
 
-Aplicația este disponibilă implicit la `http://localhost:5173`.
+```bash
+cd server && .venv/Scripts/python -m uvicorn app.main:app --port 8000
+```
 
-**Fără niciun server configurat, aplicația pornește pe simulatorul integrat**, deci poate fi dezvoltată și demonstrată fără mașină și fără backend.
+```bash
+cd server && .venv/Scripts/python simulator/simulate.py --direct --hz 10
+```
+
+```bash
+npm install && npm run dev
+```
+
+Dashboardul este la `http://localhost:5173`, API-ul la `http://localhost:8000` (documentație interactivă la `/docs`).
+
+### Cu broker MQTT
+
+```bash
+docker compose -f server/docker-compose.yml up -d
+```
+
+```bash
+cd server && .venv/Scripts/python simulator/simulate.py --mqtt --broker localhost --hz 10
+```
+
+### Injectare de defecte
+
+Simulatorul poate reproduce situațiile care contează, fără mașină:
+
+```bash
+python simulator/simulate.py --direct --overheat --drop-link 8 --gps-glitch
+```
+
+`--overheat` forțează alarmele termice, `--soc-drain` pornește cu bateria descărcată, `--cell-fault` dezechilibrează celulele, `--gps-glitch` degradează poziția, `--drop-link N` taie legătura N secunde la fiecare `--drop-every` secunde.
+
+## Configurare
+
+Copiază `.env.example` în `.env.local` pentru frontend. Serviciul citește variabile cu prefixul `TELEMETRY_`:
+
+| Variabilă                  | Implicit            | Rol                                               |
+| -------------------------- | ------------------- | ------------------------------------------------- |
+| `TELEMETRY_MQTT_HOST`      | _(gol)_             | Broker MQTT. Gol înseamnă ingest MQTT dezactivat. |
+| `TELEMETRY_MQTT_TOPIC`     | `solar/+/telemetry` | Topicul abonat.                                   |
+| `TELEMETRY_DB_PATH`        | `data/telemetry.db` | Baza de date a sesiunilor.                        |
+| `TELEMETRY_WS_RATE_HZ`     | `10`                | Ritmul de emisie către browser.                   |
+| `TELEMETRY_OPERATOR_TOKEN` | _(gol)_             | Token cu drept de înregistrare.                   |
+| `TELEMETRY_VIEWER_TOKEN`   | _(gol)_             | Token doar-citire.                                |
+
+Dacă niciun token nu este configurat, autentificarea este dezactivată — potrivit pentru dezvoltare, nu pentru o rețea partajată.
+
+## Catalogul de semnale
+
+`server/app/signals.py` este sursa unică de adevăr: etichete, unități, zecimale, praguri de alarmă și timpul după care un semnal devine învechit. Frontendul își construiește cardurile, graficele și tabelele din catalogul expus la `GET /api/v1/signals`.
+
+**Adăugarea unui senzor nou înseamnă o linie în `signals.py` și zero modificări în React.**
 
 ## Verificări
 
@@ -30,75 +88,43 @@ Aplicația este disponibilă implicit la `http://localhost:5173`.
 npm run check
 ```
 
-Comanda rulează lint, verificarea TypeScript, testele și buildul de producție.
-
-## Configurare
-
-Copiază `.env.example` în `.env.local`.
-
-```env
-VITE_API_URL=http://localhost:8000
-VITE_WS_URL=ws://localhost:8000/ws/telemetry
-VITE_TELEMETRY_SOURCE=auto
+```bash
+cd server && .venv/Scripts/python -m pytest
 ```
-
-`VITE_TELEMETRY_SOURCE` acceptă:
-
-| Valoare | Comportament |
-| --- | --- |
-| `auto` (implicit) | WebSocket dacă `VITE_WS_URL` este setat, altfel simulator |
-| `websocket` | Se conectează la `VITE_WS_URL` |
-| `simulator` | Date generate local |
-
-Sursa poate fi comutată și din interfață, din colțul barei laterale, fără repornire.
-
-## Contractul de date
-
-Serverul trimite prin WebSocket mesajul descris în documentul de arhitectură:
-
-```json
-{
-  "schema_version": 1,
-  "vehicle_id": "tucn-solar-01",
-  "session_id": "race-2026-07-21",
-  "timestamp": "2026-07-21T12:34:56.123Z",
-  "sequence": 18452,
-  "signals": { "battery_soc_pct": 76.2 }
-}
-```
-
-Sunt acceptate și variantele:
-
-- semnal cu calitate explicită: `{"value": 76.2, "quality": "valid"}`, unde `quality` este `valid`, `stale`, `unavailable` sau `error`;
-- mesaj cu plic: `{"type": "telemetry", "frame": {…}}`;
-- alarme calculate pe server: `{"type": "alarms", "alarms": [{"id": "…", "severity": "critical", "title": "…"}]}`.
-
-Mesajele care nu trec de validarea Zod sunt numărate și afișate în pagina **Sistem**, nu aruncate în tăcere.
-
-## Decizii de implementare
-
-- **`0` nu înseamnă „fără date".** Valorile lipsă sunt `null` și se afișează ca `—`. Vechimea ultimului mesaj este vizibilă permanent, iar indicatorul de conexiune trece pe „date învechite" chiar dacă socketul este deschis.
-- **Recepția și afișarea sunt separate.** Cadrele sunt înregistrate în istoric la rata plină, dar publicate în React cel mult de `uiRefreshHz` ori pe secundă (implicit 10 Hz), conform deciziei #4 din documentul de arhitectură.
-- **Istoricul stă în afara stării React** (`lib/history-buffer.ts`), într-un buffer mutabil pe coloane. Componentele se abonează la `historyVersion`.
-- **Alarmele sunt evaluate local, dar cele de la server au prioritate** (`lib/alarms.ts`). Pragurile locale sunt o soluție temporară până când backendul le calculează și le înregistrează în istoricul sesiunii.
-- **Registrul de semnale** (`config/signals.ts`) este sursa unică de adevăr: etichetă, unitate, precizie, grupă și praguri. Un semnal nou se adaugă într-un singur loc.
-- **Circuitul simulat** (`lib/track.ts`) este definit prin puncte de reper, interpolate cu o spline Catmull-Rom închisă și reeșantionate la pas constant de 3 m. Din curbura fiecărui punct rezultă o limită de viteză (`v = √(a_lateral / κ)`), peste care se aplică treceri înainte și înapoi pe buclă pentru a respecta accelerația și frânarea — altfel mașina ar intra în viraj cu viteza de pe dreaptă. Rezultă un circuit de ~3,1 km, parcurs în ~174 s, cu viteze între 25 și 90 km/h. Poziția GPS nu mai este un cerc, ci consecința distanței parcurse.
-- **Harta traseului este SVG, nu ECharts.** O reprezentare cartografică trebuie să păstreze proporțiile: `preserveAspectRatio` garantează că un viraj rotund rămâne rotund indiferent de forma panoului, ceea ce axele cartesiene scalate independent nu asigurau. Harta se redesenează de 2 ori pe secundă, nu la fiecare cadru, și subeșantionează traseul peste 900 de puncte.
-- **Importurile ECharts trebuie făcute din `echarts-for-react/esm/core`.** Varianta `lib/` este CommonJS și, prin interop-ul din browser, ajunge ca obiect de modul — React cade cu „Element type is invalid". Testele din jsdom nu prind asta, pentru că Node rezolvă corect `exports.default`, deci restricția este impusă de o regulă `no-restricted-imports` în `.oxlintrc.json`.
 
 ## Structură
 
 ```text
-src/
-├── app/          # router, provideri globali și layout
-├── components/   # componente UI reutilizabile
-├── config/       # variabile de mediu și registrul de semnale
-├── features/     # câte o pagină per domeniu
-├── hooks/        # conectarea la telemetrie și derivarea datelor
-├── lib/          # surse de date, istoric, alarme, formatare
-├── schemas/      # validarea contractelor de date
-├── stores/       # stare client
-└── test/         # configurarea testelor
+src/                  # dashboard
+├── app/              # router și provideri
+├── components/       # componente UI (carduri, grafice, hartă, alarme)
+├── features/         # paginile: prezentare, energie, traseu, sistem, sesiuni
+├── hooks/            # fluxul live și accesul la semnale
+├── lib/              # client WebSocket, buffer de serii, replay, formatare
+├── schemas/          # validarea contractelor de date
+└── stores/           # stare client
+
+server/               # serviciul de telemetrie
+├── app/
+│   ├── api/          # WebSocket și REST
+│   ├── core/         # magistrală, calitate, alarme, sesiuni
+│   ├── ingest/       # MQTT și HTTP
+│   ├── storage/      # SQLite (interfață pregătită pentru TimescaleDB)
+│   └── signals.py    # catalogul de semnale
+├── simulator/        # simulator de telemetrie
+└── tests/
 ```
 
-Arhitectura recomandată pentru întregul sistem este documentată în [`docs/recomandari-arhitectura-dashboard-masina-solara.md`](docs/recomandari-arhitectura-dashboard-masina-solara.md).
+## Decizii de proiectare
+
+**`0` nu este același lucru cu „fără date".** Fiecare semnal are o stare de calitate (`valid`, `stale`, `unavailable`, `sensor_error`) calculată pe server. Interfața afișează `—` pentru orice nu este proaspăt, niciodată `0` sau ultima valoare cunoscută.
+
+**Alarmele se calculează pe server, cu histerezis.** Pragul de activare diferă de cel de stingere, deci o valoare care oscilează în jurul limitei nu produce zeci de alarme. Când alarma critică a unui semnal este activă, avertizarea aceluiași semnal este ascunsă. Tranzițiile se salvează în istoricul sesiunii.
+
+**Interfața se randează pe două benzi.** Eșantioanele intră imediat într-un buffer circular din afara React, pe care graficele îl citesc într-o buclă `requestAnimationFrame`. Textul se actualizează la ~5 Hz. La 10 Hz și 30 de semnale, trecerea fiecărui eșantion prin state React ar re-randa inutil întreaga pagină.
+
+**Replay-ul folosește aceeași cale de date ca fluxul live.** Componentele nu știu dacă rulează pe date live sau pe o înregistrare, deci nu există o a doua cale de cod care să se strice separat.
+
+**Harta nu folosește tile-uri externe.** Traseul este desenat din coordonatele GPS, auto-scalat. Funcționează fără internet, coerent cu principiul local-first.
+
+**Stocarea este SQLite, în spatele unei interfețe.** La 10 Hz, o cursă de opt ore înseamnă ~290.000 de rânduri, dimensiune la care SQLite se comportă bine fără servicii suplimentare în pitlane. Trecerea la TimescaleDB înseamnă o singură clasă nouă care implementează `TelemetryStorage`.

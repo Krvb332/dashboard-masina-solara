@@ -1,216 +1,203 @@
-import { useMemo } from 'react'
-import { formatNumber } from '../lib/format'
-import { historyBuffer, useTelemetryStore } from '../stores/telemetry-store'
-
-const LAT_KEY = 'gps_latitude_deg'
-const LON_KEY = 'gps_longitude_deg'
-
-const METERS_PER_DEG_LAT = 111_320
-
-/** Actualizăm harta de 2 ori pe secundă, nu la fiecare cadru. */
-const VERSIONS_PER_UPDATE = 5
-
-/** Numărul maxim de puncte desenate; peste atât, traseul se subeșantionează. */
-const MAX_PATH_POINTS = 900
-
-/** Lungimi „rotunde" pentru scara grafică, în metri. */
-const SCALE_STEPS = [10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000]
-
-type Geometry = {
-  path: string
-  current: { x: number; y: number } | null
-  viewBox: string
-  extent: number
-  scale: { meters: number; label: string }
-  originX: number
-  originY: number
-}
+import { useEffect, useRef } from 'react'
+import { telemetryBuffer } from '../lib/telemetry-buffer'
+import {
+  metersPerPixel,
+  mixColor,
+  niceStep,
+  pairPositions,
+  projectTrack,
+  type Position,
+  type Projected,
+} from '../lib/track-projection'
 
 /**
- * Traseul parcurs, desenat din istoricul de coordonate GPS.
+ * Harta traseului, desenată pe canvas din coordonatele GPS primite.
  *
- * Este o reprezentare relativă, nu o hartă: nu avem fundal cartografic, iar un
- * dashboard de pitlane trebuie să funcționeze fără internet. Coordonatele sunt
- * proiectate local în metri, iar `preserveAspectRatio` garantează că forma
- * circuitului nu este deformată — un viraj rotund rămâne rotund, indiferent de
- * proporțiile panoului.
+ * Deliberat fără tile-uri externe: documentul de arhitectură cere ca sistemul
+ * să funcționeze complet fără internet, iar în pitlane o hartă cu tile-uri
+ * remote ar afișa pătrate gri exact când e nevoie de ea. Traseul se
+ * auto-scalează după punctele primite, deci funcționează pe orice circuit fără
+ * configurare.
  */
-export function TrackMap({
-  windowSeconds = 600,
-  height = 300,
-}: {
-  windowSeconds?: number
+
+const REDRAW_INTERVAL_MS = 100
+const PADDING = 18
+/** Câte poziții păstrăm pe urmă. La 10 Hz, 3000 înseamnă ultimele 5 minute. */
+const TRAIL_POINTS = 3000
+
+const COLD = [96, 165, 250] as const // albastru: viteză mică
+const HOT = [251, 191, 36] as const // chihlimbar: viteză mare
+
+type TrackMapProps = {
   height?: number
-}) {
-  const version = useTelemetryStore((state) => state.historyVersion)
-  const tick = Math.floor(version / VERSIONS_PER_UPDATE)
+  className?: string
+}
 
-  const geometry = useMemo<Geometry | null>(() => {
-    const { series } = historyBuffer.window([LAT_KEY, LON_KEY], windowSeconds)
-    const latitudes = series[LAT_KEY] ?? []
-    const longitudes = series[LON_KEY] ?? []
+export function TrackMap({ height = 320, className }: TrackMapProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
-    // Proiecție locală: originea este prima poziție cunoscută, `x` spre est și
-    // `y` spre nord. Longitudinea se scurtează cu cosinusul latitudinii.
-    let originLat: number | null = null
-    let originLon = 0
-    let metersPerDegLon = METERS_PER_DEG_LAT
-    const points: { x: number; y: number }[] = []
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-    for (let index = 0; index < latitudes.length; index += 1) {
-      const lat = latitudes[index]
-      const lon = longitudes[index]
-      if (lat === null || lon === null) continue
-      if (lat === undefined || lon === undefined) continue
+    const context = canvas.getContext('2d')
+    if (!context) return
 
-      if (originLat === null) {
-        originLat = lat
-        originLon = lon
-        metersPerDegLon = METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180)
-      }
+    let frame = requestAnimationFrame(draw)
+    let lastDraw = 0
 
-      points.push({
-        x: (lon - originLon) * metersPerDegLon,
-        // În SVG axa y crește în jos, deci nordul primește semn negativ.
-        y: -(lat - originLat) * METERS_PER_DEG_LAT,
-      })
+    function draw(now: number) {
+      frame = requestAnimationFrame(draw)
+      if (now - lastDraw < REDRAW_INTERVAL_MS) return
+      lastDraw = now
+      render(canvas as HTMLCanvasElement, context as CanvasRenderingContext2D)
     }
 
-    if (points.length === 0) return null
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(() => render(canvas, context))
+    resizeObserver?.observe(canvas)
 
-    let minX = Infinity
-    let maxX = -Infinity
-    let minY = Infinity
-    let maxY = -Infinity
-    for (const point of points) {
-      if (point.x < minX) minX = point.x
-      if (point.x > maxX) maxX = point.x
-      if (point.y < minY) minY = point.y
-      if (point.y > maxY) maxY = point.y
+    return () => {
+      cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
     }
-
-    const width = Math.max(maxX - minX, 1)
-    const depth = Math.max(maxY - minY, 1)
-    const extent = Math.max(width, depth)
-    const padding = extent * 0.08
-
-    const step = Math.ceil(points.length / MAX_PATH_POINTS)
-    const drawn = step > 1 ? points.filter((_, i) => i % step === 0) : points
-
-    const path = drawn
-      .map(
-        (point, index) =>
-          `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`,
-      )
-      .join(' ')
-
-    const scaleMeters =
-      SCALE_STEPS.find((candidate) => candidate > extent * 0.18) ??
-      SCALE_STEPS.at(-1)!
-
-    return {
-      path,
-      current: points.at(-1) ?? null,
-      viewBox: `${minX - padding} ${minY - padding} ${width + padding * 2} ${depth + padding * 2}`,
-      extent,
-      scale: {
-        meters: scaleMeters,
-        label:
-          scaleMeters >= 1_000
-            ? `${formatNumber(scaleMeters / 1_000, 1)} km`
-            : `${scaleMeters} m`,
-      },
-      originX: minX - padding * 0.4,
-      originY: maxY + padding * 0.6,
-    }
-    // `tick` este dependența reală: bufferul de istoric se modifică pe loc.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, windowSeconds])
-
-  if (!geometry) {
-    return (
-      <div
-        className="grid place-items-center rounded-xl border border-dashed border-white/10 text-sm text-zinc-500"
-        style={{ height }}
-      >
-        Fără poziție GPS
-      </div>
-    )
-  }
-
-  const markerRadius = geometry.extent * 0.016
-  const fontSize = geometry.extent * 0.032
+  }, [])
 
   return (
-    <svg
-      viewBox={geometry.viewBox}
-      preserveAspectRatio="xMidYMid meet"
-      style={{ height, width: '100%' }}
+    <canvas
+      ref={canvasRef}
+      style={{ height }}
+      className={className ?? 'w-full rounded-xl bg-black/25'}
       role="img"
-      aria-label="Traseul parcurs, reconstituit din coordonatele GPS"
-    >
-      <path
-        d={geometry.path}
-        fill="none"
-        stroke="#1684e8"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-        opacity={0.9}
-      />
-
-      {geometry.current && (
-        <>
-          <circle
-            cx={geometry.current.x}
-            cy={geometry.current.y}
-            r={markerRadius * 2.2}
-            fill="#fbbf24"
-            opacity={0.18}
-          />
-          <circle
-            cx={geometry.current.x}
-            cy={geometry.current.y}
-            r={markerRadius}
-            fill="#fbbf24"
-            stroke="#09090b"
-            strokeWidth={2}
-            vectorEffect="non-scaling-stroke"
-          />
-        </>
-      )}
-
-      {/* Scară grafică: fără ea, o reprezentare relativă nu spune nimic despre distanțe. */}
-      <g stroke="#71717a" strokeWidth={1.5} vectorEffect="non-scaling-stroke">
-        <line
-          x1={geometry.originX}
-          y1={geometry.originY}
-          x2={geometry.originX + geometry.scale.meters}
-          y2={geometry.originY}
-        />
-        <line
-          x1={geometry.originX}
-          y1={geometry.originY - fontSize * 0.25}
-          x2={geometry.originX}
-          y2={geometry.originY + fontSize * 0.25}
-        />
-        <line
-          x1={geometry.originX + geometry.scale.meters}
-          y1={geometry.originY - fontSize * 0.25}
-          x2={geometry.originX + geometry.scale.meters}
-          y2={geometry.originY + fontSize * 0.25}
-        />
-      </g>
-      <text
-        x={geometry.originX}
-        y={geometry.originY - fontSize * 0.5}
-        fill="#a1a1aa"
-        fontSize={fontSize}
-        fontFamily="IBM Plex Sans"
-      >
-        {geometry.scale.label}
-      </text>
-    </svg>
+      aria-label="Harta traseului cu poziția curentă a mașinii"
+    />
   )
+}
+
+function render(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+  const ratio = window.devicePixelRatio || 1
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  if (width === 0 || height === 0) return
+
+  if (canvas.width !== width * ratio || canvas.height !== height * ratio) {
+    canvas.width = width * ratio
+    canvas.height = height * ratio
+  }
+
+  context.setTransform(ratio, 0, 0, ratio, 0, 0)
+  context.clearRect(0, 0, width, height)
+
+  const points = pairPositions(
+    telemetryBuffer.toSeries('gps_latitude_deg', undefined, TRAIL_POINTS),
+    telemetryBuffer.toSeries('gps_longitude_deg', undefined, TRAIL_POINTS),
+    telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
+  )
+
+  if (points.length < 2) {
+    drawPlaceholder(context, width, height)
+    return
+  }
+
+  const projected = projectTrack(points, width, height, PADDING)
+  drawTrail(context, projected)
+  drawStart(context, projected[0])
+  drawCurrent(context, projected[projected.length - 1])
+  drawScale(context, points, projected, width, height)
+}
+
+function drawTrail(context: CanvasRenderingContext2D, points: Projected[]) {
+  const speeds = points.map((point) => point.speed)
+  const minSpeed = Math.min(...speeds)
+  const maxSpeed = Math.max(...speeds)
+  const span = Math.max(maxSpeed - minSpeed, 1)
+
+  context.lineWidth = 2.5
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1]
+    const to = points[index]
+
+    context.strokeStyle = mixColor(COLD, HOT, (to.speed - minSpeed) / span)
+    context.beginPath()
+    context.moveTo(from.x, from.y)
+    context.lineTo(to.x, to.y)
+    context.stroke()
+  }
+}
+
+function drawStart(context: CanvasRenderingContext2D, point: Projected) {
+  context.strokeStyle = 'rgba(244, 244, 245, 0.75)'
+  context.lineWidth = 2
+  context.beginPath()
+  context.arc(point.x, point.y, 6, 0, Math.PI * 2)
+  context.stroke()
+}
+
+function drawCurrent(context: CanvasRenderingContext2D, point: Projected) {
+  context.fillStyle = 'rgba(16, 185, 129, 0.25)'
+  context.beginPath()
+  context.arc(point.x, point.y, 10, 0, Math.PI * 2)
+  context.fill()
+
+  context.fillStyle = '#10b981'
+  context.beginPath()
+  context.arc(point.x, point.y, 5, 0, Math.PI * 2)
+  context.fill()
+}
+
+/** Bară de scară, ca distanțele de pe hartă să fie interpretabile. */
+function drawScale(
+  context: CanvasRenderingContext2D,
+  points: Position[],
+  projected: Projected[],
+  width: number,
+  height: number,
+) {
+  const perPixel = metersPerPixel(
+    points[0],
+    points[points.length - 1],
+    projected,
+  )
+  if (!Number.isFinite(perPixel) || perPixel <= 0) return
+
+  const step = niceStep(Math.min(120, width / 3) * perPixel)
+  const pixels = step / perPixel
+  const y = height - 14
+  const x = 14
+
+  context.strokeStyle = 'rgba(161, 161, 170, 0.65)'
+  context.lineWidth = 1.5
+  context.beginPath()
+  context.moveTo(x, y)
+  context.lineTo(x + pixels, y)
+  context.moveTo(x, y - 4)
+  context.lineTo(x, y + 4)
+  context.moveTo(x + pixels, y - 4)
+  context.lineTo(x + pixels, y + 4)
+  context.stroke()
+
+  context.fillStyle = 'rgba(161, 161, 170, 0.8)'
+  context.font = '11px "IBM Plex Sans Variable", sans-serif'
+  context.fillText(
+    step >= 1000 ? `${step / 1000} km` : `${step} m`,
+    x + pixels + 8,
+    y + 4,
+  )
+}
+
+function drawPlaceholder(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+) {
+  context.fillStyle = 'rgba(113, 113, 122, 0.9)'
+  context.font = '13px "IBM Plex Sans Variable", sans-serif'
+  context.textAlign = 'center'
+  context.fillText('Se așteaptă poziția GPS…', width / 2, height / 2)
+  context.textAlign = 'start'
 }

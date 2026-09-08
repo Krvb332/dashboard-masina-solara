@@ -1,87 +1,174 @@
-import type { LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
-import { NO_DATA } from '../lib/format'
+import {
+  BatteryCharging,
+  Bolt,
+  Gauge,
+  MapPin,
+  Sun,
+  Thermometer,
+  Waves,
+  type LucideIcon,
+} from 'lucide-react'
+import { useSignal } from '../hooks/useSignal'
+import { formatAge, formatSigned } from '../lib/format'
+import { telemetryBuffer } from '../lib/telemetry-buffer'
+import { toneFor, type MetricTone } from '../lib/tone'
+import type { SignalDefinition } from '../schemas/telemetry'
+import { useTelemetryStore } from '../stores/telemetry-store'
+import { SignalValue } from './SignalValue'
 
-/** Culoarea de identitate a cardului. Nu comunică nimic despre alarme. */
-export type MetricAccent = 'blue' | 'emerald' | 'amber' | 'zinc'
+/**
+ * Cardul unui indicator. Nu primește text formatat, ci cheia semnalului:
+ * eticheta, unitatea, numărul de zecimale și pragurile vin din catalogul
+ * serverului, deci un senzor nou apare aici fără modificări de cod.
+ */
 
-/** Depășire de prag. Doar aceasta schimbă chenarul. */
-export type MetricSeverity = 'warning' | 'critical'
+const toneClasses: Record<MetricTone, string> = {
+  default: 'bg-blue-500/10 text-blue-300 ring-blue-400/20',
+  success: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/20',
+  warning: 'bg-amber-500/10 text-amber-300 ring-amber-400/20',
+  danger: 'bg-rose-500/10 text-rose-300 ring-rose-400/20',
+}
+
+const groupIcons: Record<string, LucideIcon> = {
+  status: Gauge,
+  energy: Bolt,
+  thermal: Thermometer,
+  motor: Waves,
+  gps: MapPin,
+}
+
+const signalIcons: Record<string, LucideIcon> = {
+  vehicle_speed_kph: Gauge,
+  battery_soc_pct: BatteryCharging,
+  solar_power_w: Sun,
+  battery_temp_max_c: Thermometer,
+}
+
+/** Fereastra pe care se calculează tendința afișată sub valoare. */
+const TREND_WINDOW_MS = 60_000
 
 type MetricCardProps = {
-  label: string
-  value: string
+  signalKey: string
+  icon?: LucideIcon
   detail?: string
-  icon: LucideIcon
-  accent?: MetricAccent
-  severity?: MetricSeverity | null
-  /** Datele nu mai sunt proaspete: valoarea este afișată estompat. */
-  stale?: boolean
-}
-
-const accentClasses: Record<MetricAccent, string> = {
-  blue: 'bg-blue-500/10 text-blue-300 ring-blue-400/20',
-  emerald: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/20',
-  amber: 'bg-amber-500/10 text-amber-300 ring-amber-400/20',
-  zinc: 'bg-zinc-500/10 text-zinc-400 ring-zinc-400/20',
-}
-
-const severityAccent: Record<MetricSeverity, string> = {
-  warning: 'bg-amber-500/15 text-amber-300 ring-amber-400/40',
-  critical: 'bg-red-500/15 text-red-300 ring-red-400/40',
-}
-
-const severityBorder: Record<MetricSeverity, string> = {
-  warning: 'border-amber-400/35',
-  critical: 'border-red-400/50',
+  className?: string
 }
 
 export function MetricCard({
-  label,
-  value,
+  signalKey,
+  icon,
   detail,
-  icon: Icon,
-  accent = 'blue',
-  severity = null,
-  stale = false,
+  className,
 }: MetricCardProps) {
-  const hasValue = value !== NO_DATA
+  const { definition, value, fresh, state, quality } = useSignal(signalKey)
+  // Ne re-randăm odată cu cadrele, ca tendința citită din buffer să fie actuală.
+  useTelemetryStore((store) => store.lastFrameAt)
+
+  const tone = toneFor(definition, fresh ? value : null)
+  const Icon =
+    icon ??
+    signalIcons[signalKey] ??
+    (definition ? groupIcons[definition.group] : undefined) ??
+    Gauge
 
   return (
     <article
       className={clsx(
-        'rounded-2xl border bg-white/[0.035] p-5 shadow-2xl shadow-black/10 backdrop-blur-sm transition-colors',
-        severity ? severityBorder[severity] : 'border-white/10',
-        stale && 'opacity-60',
+        // `min-w-0` este obligatoriu: fără el, un element de grid nu coboară sub
+        // lățimea conținutului, iar textele cu `truncate` (white-space: nowrap)
+        // împing cardul în afara ecranului pe telefon.
+        'min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/10 backdrop-blur-sm',
+        state === 'sensor_error' && 'border-rose-400/30',
+        className,
       )}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-medium tracking-[0.16em] text-zinc-400 uppercase">
-            {label}
+          <p className="truncate text-xs font-medium tracking-[0.16em] text-zinc-400 uppercase">
+            {definition?.label ?? signalKey}
           </p>
-          <p
-            className={clsx(
-              'mt-3 text-3xl font-semibold tracking-tight tabular-nums',
-              hasValue ? 'text-white' : 'text-zinc-600',
-            )}
-          >
-            {value}
+          <p className="mt-3">
+            <SignalValue signalKey={signalKey} size="lg" />
           </p>
         </div>
         <span
           className={clsx(
             'grid size-11 shrink-0 place-items-center rounded-xl ring-1',
-            severity ? severityAccent[severity] : accentClasses[accent],
+            toneClasses[tone],
           )}
           aria-hidden="true"
         >
           <Icon size={20} strokeWidth={1.8} />
         </span>
       </div>
-      <p className="mt-4 min-h-5 text-sm text-zinc-400">
-        {stale ? 'Date învechite' : (detail ?? '')}
+
+      <p className="mt-4 truncate text-sm text-zinc-400">
+        {detail ?? describe(signalKey, definition, fresh, quality?.age_ms)}
       </p>
     </article>
+  )
+}
+
+function describe(
+  signalKey: string,
+  definition: SignalDefinition | undefined,
+  fresh: boolean,
+  ageMs: number | undefined,
+): string {
+  if (!fresh) {
+    return ageMs === undefined || ageMs === 0
+      ? 'Fără date de la mașină'
+      : `Ultima valoare acum ${formatAge(ageMs)}`
+  }
+
+  const previous = telemetryBuffer.valueAgo(signalKey, TREND_WINDOW_MS)
+  const current = telemetryBuffer.latest(signalKey)
+
+  if (previous === null || current === null) {
+    return definition?.description || 'Recepție normală'
+  }
+
+  const delta = current - previous
+  const decimals = definition?.decimals ?? 1
+  if (Math.abs(delta) < 10 ** -decimals) {
+    return 'Stabil în ultimul minut'
+  }
+
+  const unit = definition?.unit ? ` ${definition.unit}` : ''
+  return `${formatSigned(delta, decimals)}${unit} în ultimul minut`
+}
+
+/** Variantă compactă, pentru listele dense din paginile de detaliu. */
+export function MetricRow({ signalKey }: { signalKey: string }) {
+  const { definition, value, fresh } = useSignal(signalKey)
+  const tone = toneFor(definition, fresh ? value : null)
+
+  return (
+    <li className="flex min-h-11 min-w-0 items-center justify-between gap-4 rounded-xl bg-black/15 px-3 py-2">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-zinc-200">
+          {definition?.label ?? signalKey}
+        </p>
+        {definition?.description ? (
+          <p className="truncate text-xs text-zinc-500">
+            {definition.description}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-3">
+        <SignalValue signalKey={signalKey} size="sm" />
+        <span
+          className={clsx(
+            'size-2 shrink-0 rounded-full',
+            tone === 'danger' && 'bg-rose-400',
+            tone === 'warning' && 'bg-amber-400',
+            tone === 'success' && 'bg-emerald-400',
+            tone === 'default' && 'bg-zinc-600',
+          )}
+          aria-hidden="true"
+        />
+      </div>
+    </li>
   )
 }
