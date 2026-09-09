@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { API_TOKEN, WS_URL, fetchCatalog } from '../lib/api'
+import { registerTelemetryControl } from '../lib/telemetry-control'
 import { pushSample, pushSamples, resetBuffer } from '../lib/telemetry-buffer'
 import { TelemetryClient } from '../lib/ws-client'
 import type { TelemetryFrame } from '../schemas/telemetry'
@@ -81,6 +82,17 @@ export function useTelemetryStream(): void {
 
     client.connect()
 
+    // Butonul de reset din pagina „Sistem" ajunge la client pe aici.
+    const unregister = registerTelemetryControl({
+      reconnect: () => {
+        // Fără asta, primul cadru de după reset ar fi considerat „deja adăugat"
+        // și graficul ar rămâne gol până la următoarea măsurătoare nouă.
+        lastPushedAt.current = null
+        pendingFrame.current = null
+        client.reconnect()
+      },
+    })
+
     const timer = setInterval(() => {
       const frame = pendingFrame.current
       if (frame === null) return
@@ -90,6 +102,7 @@ export function useTelemetryStream(): void {
 
     return () => {
       clearInterval(timer)
+      unregister()
       client.close()
     }
   }, [applyFrame, countInvalidFrame, setConnection])

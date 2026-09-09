@@ -75,6 +75,33 @@ export class TelemetryClient {
     this.options.onState('disconnected')
   }
 
+  /**
+   * Repornește legătura acum, fără să aștepte backofful.
+   *
+   * Diferența față de `connect()` este că se poate chema pe un client deja
+   * pornit: închide socketul curent (fără să lase `onclose` să programeze o
+   * reconectare întârziată) și deschide imediat altul. Contorul de încercări
+   * revine la zero, altfel o legătură care a picat de zece ori ar mai aștepta
+   * cinci secunde după ce omul apasă butonul.
+   */
+  reconnect(): void {
+    this.closedByUser = false
+    this.clearTimers()
+
+    const socket = this.socket
+    this.socket = null
+    if (socket) {
+      socket.onclose = null
+      socket.onmessage = null
+      socket.onerror = null
+      socket.onopen = null
+      socket.close()
+    }
+
+    this.attempt = 0
+    this.open()
+  }
+
   /** Trimite un mesaj către server (de exemplu confirmarea unei alarme). */
   send(message: Record<string, unknown>): void {
     if (this.socket?.readyState === WebSocket.OPEN) {

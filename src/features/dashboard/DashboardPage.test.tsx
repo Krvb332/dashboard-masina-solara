@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -7,7 +8,6 @@ import {
   resetTelemetryStore,
   seedTelemetry,
 } from '../../test/fixtures'
-import { useTelemetryStore } from '../../stores/telemetry-store'
 import { DashboardPage } from './DashboardPage'
 
 // Canvas și ECharts nu au sens în jsdom; testăm compoziția paginii, nu desenul.
@@ -42,11 +42,24 @@ const catalog = [
   }),
 ]
 
+// Panoul Teensy interoghează `/api/v1/health`; în teste nu vrem rețea, doar
+// compoziția paginii.
+vi.mock('../../lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api')>()),
+  fetchHealth: vi.fn(() => new Promise(() => {})),
+}))
+
 function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+
   return render(
-    <MemoryRouter>
-      <DashboardPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 
@@ -84,58 +97,45 @@ describe('DashboardPage', () => {
     renderPage()
 
     expect(screen.queryByText('63,8 km/h')).not.toBeInTheDocument()
-    expect(screen.getAllByText('—')).toHaveLength(2)
+    // Restrâns la carduri: panoul plăcii are și el „—" pentru ce nu se știe.
+    const cards = within(screen.getByLabelText('Indicatori principali'))
+    expect(cards.getAllByText('—')).toHaveLength(2)
     expect(screen.getByText(/Ultima valoare acum/)).toBeInTheDocument()
     expect(screen.getByText('Fără date de la mașină')).toBeInTheDocument()
   })
 
-  it('include graficul, harta și panoul de alarme', () => {
+  it('include graficul, harta și statisticile plăcii', () => {
     seedTelemetry(catalog)
 
     renderPage()
 
     expect(screen.getAllByTestId('telemetry-chart')).toHaveLength(2)
     expect(screen.getByTestId('track-map')).toBeInTheDocument()
-    expect(screen.getByText('Nicio alarmă activă.')).toBeInTheDocument()
+    expect(screen.getByText('Placă Teensy')).toBeInTheDocument()
   })
 
-  it('listează alarmele active, cele critice primele', () => {
-    seedTelemetry(catalog)
-    useTelemetryStore.setState({
-      alarms: [
-        {
-          id: 'a1',
-          key: 'motor_temp_c:warn_high',
-          label: 'Temp. motor',
-          severity: 'warning',
-          message: 'Temperatura motorului este ridicată.',
-          signal_key: 'motor_temp_c',
-          value: 95,
-          threshold: 90,
-          raised_at: '2026-07-24T10:00:00Z',
-          cleared_at: null,
-          active: true,
-        },
-        {
-          id: 'a2',
-          key: 'link_lost',
-          label: 'Legătură pierdută',
-          severity: 'critical',
-          message: 'Nu s-au mai primit mesaje de la mașină.',
-          signal_key: null,
-          value: null,
-          threshold: 2,
-          raised_at: '2026-07-24T10:00:05Z',
-          cleared_at: null,
-          active: true,
-        },
-      ],
+  it('numără sursele care mai trimit date', () => {
+    seedTelemetry(catalog, {
+      // `vehicle_speed_kph` nu aparține niciunei surse; `motor_temp_c` este la
+      // senzorii de temperatură, iar `battery_soc_pct` la BMS.
+      motor_temp_c: makeQuality('valid', 61),
+      battery_soc_pct: makeQuality('unavailable', null),
     })
 
     renderPage()
 
-    const items = screen.getAllByRole('listitem')
-    expect(items[0]).toHaveTextContent('Legătură pierdută')
-    expect(items[1]).toHaveTextContent('Temp. motor')
+    // O sursă din două răspunde: BMS-ul tace, senzorii de temperatură nu.
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+    expect(screen.getByText(/1 din 3 semnale proaspete/)).toBeInTheDocument()
+  })
+
+  it('nu inventează temperatura plăcii cât timp firmware-ul nu o trimite', () => {
+    seedTelemetry(catalog)
+
+    renderPage()
+
+    expect(
+      screen.getByText('se așteaptă semnalul din firmware'),
+    ).toBeInTheDocument()
   })
 })

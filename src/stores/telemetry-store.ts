@@ -42,6 +42,11 @@ type TelemetryStore = {
   quality: Record<string, SignalQuality>
   alarms: Alarm[]
   stats: StreamStats
+  /**
+   * Valorile contoarelor la ultima resetare. Ce se afișează este diferența
+   * față de ele — vezi `lib/stream-stats.ts`.
+   */
+  statsBaseline: StreamStats | null
   serverTime: string | null
   /** Diferența ceas browser - ceas server, în ms. Pozitiv = browserul e înainte. */
   clientClockOffsetMs: number
@@ -78,6 +83,7 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
   quality: {},
   alarms: [],
   stats: EMPTY_STATS,
+  statsBaseline: null,
   serverTime: null,
   clientClockOffsetMs: 0,
   recordingSessionId: null,
@@ -131,16 +137,19 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
     ),
 
   reset: () =>
-    set({
+    set((state) => ({
       latest: null,
       quality: {},
       alarms: [],
       stats: EMPTY_STATS,
+      // Contoarele serverului nu se pot pune pe zero din browser, deci reținem
+      // de unde am pornit și afișăm diferența.
+      statsBaseline: state.stats.received > 0 ? state.stats : null,
       laps: [],
       lapTracking: initialLapTracking,
       acknowledged: [],
       invalidFrames: 0,
-    }),
+    })),
 }))
 
 /**

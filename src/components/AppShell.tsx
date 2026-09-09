@@ -12,11 +12,14 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useErrorLog } from '../hooks/useErrorLog'
 import { useTelemetryStream } from '../hooks/useTelemetryStream'
 import { API_URL } from '../lib/api'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 import { ConnectionBadge } from './ConnectionBadge'
+import { ErrorPanel, ErrorPanelToggle } from './ErrorPanel'
+import { ErrorToasts } from './ErrorToasts'
 import { ReplayControls } from './ReplayControls'
 
 /**
@@ -36,6 +39,7 @@ const navigation = [
 
 export function AppShell() {
   useTelemetryStream()
+  useErrorLog()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
@@ -146,13 +150,19 @@ export function AppShell() {
             </div>
           </div>
 
-          {mode === 'live' ? <ConnectionBadge /> : <ReplayBadge />}
+          <div className="flex items-center gap-3">
+            {mode === 'live' ? <ConnectionBadge /> : <ReplayBadge />}
+            <ErrorPanelToggle />
+          </div>
         </header>
 
         {mode === 'replay' && <ReplayControls />}
 
         <Outlet />
       </main>
+
+      <ErrorPanel />
+      <ErrorToasts />
     </div>
   )
 }

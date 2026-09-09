@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
-import { AlarmPanel } from '../../components/AlarmPanel'
 import { MetricCard } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { TeensyStatsPanel } from '../../components/TeensyStatsPanel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap } from '../../components/TrackMap'
 import { useOverviewSignals } from '../../hooks/useSignal'
+import { useStreamStats } from '../../hooks/useStreamStats'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
@@ -32,7 +33,7 @@ export function DashboardPage() {
         )}
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.7fr)]">
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
         <Panel
           title="Flux energetic"
           subtitle="Ultimele 7 minute · consum față de aport solar"
@@ -44,8 +45,8 @@ export function DashboardPage() {
           />
         </Panel>
 
-        <Panel title="Alarme" subtitle="Calculate pe server, cu histerezis">
-          <AlarmPanel limit={6} />
+        <Panel title="Placă Teensy" subtitle="Starea plăcii de achiziție">
+          <TeensyStatsPanel />
         </Panel>
       </section>
 
@@ -78,7 +79,7 @@ export function DashboardPage() {
 }
 
 function LiveRate() {
-  const effectiveHz = useTelemetryStore((state) => state.stats.effective_hz)
+  const { effective_hz: effectiveHz } = useStreamStats()
 
   return (
     <span className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-400">

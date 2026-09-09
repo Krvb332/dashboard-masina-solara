@@ -1,46 +1,16 @@
 import { CircleCheck, TriangleAlert } from 'lucide-react'
 import { useSignal } from '../hooks/useSignal'
+import { activeFaults } from '../lib/mitsuba-faults'
 
 /**
- * Codul de eroare al controllerului Mitsuba, descompus pe nume.
+ * Erorile raportate de controllerul Mitsuba, citite din masca de biți.
  *
- * `motor_fault_code` este masca de biți din cadrul 2 (0x08A50225). Ca număr
- * brut nu spune nimic: 268435456 și 536870912 arată la fel de nefolositor, deși
- * unul înseamnă „senzor Hall în scurtcircuit" și celălalt „senzor Hall
- * deconectat" — două intervenții complet diferite pe mașină.
- *
- * Pozițiile de mai jos trebuie să rămână identice cu `MITSUBA_ERROR_BITS` din
- * firmware și cu tabelul 1.5 din `docs/adrese_mitsuba_bms.md`. Verificarea
- * `scripts/unlazy/verify-fault-bits.mjs` din depozitul de firmware compară
- * automat cele trei liste.
+ * Tabelul de biți trăiește în `lib/mitsuba-faults.ts`; îl reexportăm de aici
+ * pentru codul (și testele) care îl cereau din panou.
  */
 
-type Fault = {
-  bit: number
-  label: string
-  hint: string
-}
-
-export const MITSUBA_FAULTS: readonly Fault[] = [
-  { bit: 0, label: 'Senzor analogic', hint: 'Eroare pe intrarea analog-digitală.' },
-  { bit: 1, label: 'Senzor curent fază U', hint: 'Măsurarea curentului pe faza U.' },
-  { bit: 2, label: 'Senzor curent fază W', hint: 'Măsurarea curentului pe faza W.' },
-  { bit: 3, label: 'Termistor FET', hint: 'Senzorul de temperatură al controllerului.' },
-  { bit: 5, label: 'Senzor tensiune baterie', hint: 'Măsurarea tensiunii de pachet.' },
-  { bit: 6, label: 'Senzor curent baterie', hint: 'Măsurarea curentului de pachet.' },
-  { bit: 7, label: 'Referință zero curent baterie', hint: 'Calibrarea de zero a curentului de pachet.' },
-  { bit: 8, label: 'Referință zero curent motor', hint: 'Calibrarea de zero a curentului de motor.' },
-  { bit: 9, label: 'Poziție accelerație', hint: 'Semnalul de la pedala de accelerație.' },
-  { bit: 11, label: 'Senzor tensiune controller', hint: 'Linia de alimentare de 12 V.' },
-  { bit: 16, label: 'Sistem de putere', hint: 'Eroare pe etajul de putere.' },
-  { bit: 17, label: 'Supracurent', hint: 'Curentul a depășit limita admisă.' },
-  { bit: 19, label: 'Supratensiune', hint: 'Tensiunea a depășit limita admisă.' },
-  { bit: 23, label: 'Limită de curent atinsă', hint: 'Controllerul limitează activ curentul.' },
-  { bit: 26, label: 'Sistem motor', hint: 'Eroare raportată de partea de motor.' },
-  { bit: 27, label: 'Motor blocat', hint: 'Comandă prezentă, dar motorul nu se rotește.' },
-  { bit: 28, label: 'Scurtcircuit senzor Hall', hint: 'Senzorii de poziție sunt în scurt.' },
-  { bit: 29, label: 'Senzor Hall deconectat', hint: 'Fir întrerupt spre senzorii de poziție.' },
-] as const
+export { MITSUBA_FAULTS } from '../lib/mitsuba-faults'
+export type { Fault } from '../lib/mitsuba-faults'
 
 export function FaultPanel() {
   const { value, fresh } = useSignal('motor_fault_code')
@@ -53,10 +23,7 @@ export function FaultPanel() {
     )
   }
 
-  // `>>>` și nu `>>`: bitul 31 ar transforma masca într-un număr negativ, iar
-  // toate testele de mai jos ar da rezultate greșite pe biții de sus.
-  const mask = value >>> 0
-  const active = MITSUBA_FAULTS.filter((fault) => (mask & (1 << fault.bit)) !== 0)
+  const active = activeFaults(value)
 
   if (active.length === 0) {
     return (

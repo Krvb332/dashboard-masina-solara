@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Radio, RotateCw, TriangleAlert, WifiOff } from 'lucide-react'
+import { useStreamStats } from '../hooks/useStreamStats'
 import { useTick } from '../hooks/useTick'
 import { formatAge, formatNumber } from '../lib/format'
 import { useTelemetryStore } from '../stores/telemetry-store'
@@ -32,7 +33,7 @@ const STALE_LINK_MS = 2000
 export function ConnectionBadge({ compact = false }: { compact?: boolean }) {
   const connection = useTelemetryStore((state) => state.connection)
   const latest = useTelemetryStore((state) => state.latest)
-  const stats = useTelemetryStore((state) => state.stats)
+  const stats = useStreamStats()
   const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
   const now = useTick(500)
 

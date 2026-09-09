@@ -4,6 +4,7 @@ import { DriveStatePanel } from '../../components/DriveStatePanel'
 import { FaultPanel } from '../../components/FaultPanel'
 import { MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { SystemResetButton } from '../../components/SystemResetButton'
 import { fetchHealth } from '../../lib/api'
 import {
   formatAge,
@@ -14,10 +15,8 @@ import {
 } from '../../lib/format'
 import type { QualityState } from '../../schemas/telemetry'
 import { useSignalsByGroup } from '../../hooks/useSignal'
-import {
-  isFaultCodeSignal,
-  isInDriveStatePanel,
-} from '../../lib/signal-groups'
+import { useStreamStats } from '../../hooks/useStreamStats'
+import { isFaultCodeSignal, isInDriveStatePanel } from '../../lib/signal-groups'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
@@ -69,10 +68,7 @@ export function SystemPage() {
           <DriveStatePanel />
         </Panel>
 
-        <Panel
-          title="Erori controller"
-          subtitle="Cadrul 2, descompus pe biți"
-        >
+        <Panel title="Erori controller" subtitle="Cadrul 2, descompus pe biți">
           <FaultPanel />
         </Panel>
       </section>
@@ -85,7 +81,7 @@ export function SystemPage() {
 }
 
 function StreamHealth() {
-  const stats = useTelemetryStore((state) => state.stats)
+  const stats = useStreamStats()
   const invalidFrames = useTelemetryStore((state) => state.invalidFrames)
   const connection = useTelemetryStore((state) => state.connection)
   const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
@@ -113,7 +109,13 @@ function StreamHealth() {
   ]
 
   return (
-    <Panel title="Sănătatea fluxului" subtitle="Integritatea mesajelor primite">
+    <Panel
+      title="Sănătatea fluxului"
+      subtitle="Integritatea mesajelor primite"
+      // Butonul stă lângă cifrele pe care le duce la zero, nu într-un colț al
+      // paginii: aici se vede imediat ce anume s-a resetat.
+      action={<SystemResetButton />}
+    >
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         {rows.map(([label, value]) => (
           <div key={label} className="flex justify-between gap-4 text-sm">
