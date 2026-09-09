@@ -1,8 +1,10 @@
+import { CellGrid } from '../../components/CellGrid'
 import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { useSignalsByGroup } from '../../hooks/useSignal'
 import { formatDuration, formatNumber, NO_VALUE } from '../../lib/format'
+import { isInCellPanel } from '../../lib/signal-groups'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
@@ -14,8 +16,13 @@ import { useTelemetryStore } from '../../stores/telemetry-store'
 export function EnergyPage() {
   const energySignals = useSignalsByGroup('energy')
   const mppt = energySignals.filter((signal) => signal.key.startsWith('mppt'))
+  // Celulele au panoul lor; fara excluderea de aici, cele 32 de tensiuni ar
+  // aparea si ca 32 de randuri de text in bilantul energetic.
   const rest = energySignals.filter(
-    (signal) => !signal.key.startsWith('mppt') && !signal.overview,
+    (signal) =>
+      !signal.key.startsWith('mppt') &&
+      !signal.overview &&
+      !isInCellPanel(signal.key),
   )
 
   return (
@@ -44,6 +51,31 @@ export function EnergyPage() {
             <MetricRow signalKey="cell_voltage_max_v" />
             <MetricRow signalKey="battery_temp_delta_c" />
           </ul>
+        </Panel>
+      </section>
+
+      <section className="mt-4">
+        <Panel
+          title="Tensiunea pe celulă"
+          subtitle="Fiecare celulă raportată de BMS, în ordinea din pachet"
+        >
+          <CellGrid />
+        </Panel>
+      </section>
+
+      <section className="mt-4">
+        <Panel title="Capacitate și cicluri" subtitle="Raportate de BMS">
+          <ul className="grid gap-2 sm:grid-cols-2">
+            <MetricRow signalKey="battery_capacity_remain_ah" />
+            <MetricRow signalKey="battery_capacity_total_ah" />
+            <MetricRow signalKey="battery_cycles" />
+            <MetricRow signalKey="battery_soh_pct" />
+          </ul>
+          <p className="mt-3 text-xs text-zinc-500">
+            BMS-ul ANT raportează capacitatea învățată, nu pe cea de proiect,
+            deci starea de sănătate nu se poate deduce din ea și rămâne
+            indisponibilă.
+          </p>
         </Panel>
       </section>
 

@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
+import { DriveStatePanel } from '../../components/DriveStatePanel'
+import { FaultPanel } from '../../components/FaultPanel'
 import { MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
 import { fetchHealth } from '../../lib/api'
@@ -12,6 +14,10 @@ import {
 } from '../../lib/format'
 import type { QualityState } from '../../schemas/telemetry'
 import { useSignalsByGroup } from '../../hooks/useSignal'
+import {
+  isFaultCodeSignal,
+  isInDriveStatePanel,
+} from '../../lib/signal-groups'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
@@ -23,7 +29,12 @@ import { useTelemetryStore } from '../../stores/telemetry-store'
  */
 export function SystemPage() {
   const thermalSignals = useSignalsByGroup('thermal')
-  const motorSignals = useSignalsByGroup('motor')
+  // Starea de condus si codul de eroare au panouri proprii; ca randuri de text
+  // ar fi numere fara inteles ("drive_action: 3,0").
+  const motorSignals = useSignalsByGroup('motor').filter(
+    (signal) =>
+      !isInDriveStatePanel(signal.key) && !isFaultCodeSignal(signal.key),
+  )
 
   return (
     <>
@@ -47,6 +58,22 @@ export function SystemPage() {
               <MetricRow key={signal.key} signalKey={signal.key} />
             ))}
           </ul>
+        </Panel>
+      </section>
+
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <Panel
+          title="Stare de condus"
+          subtitle="Cadrele 0 și 1 ale controllerului Mitsuba"
+        >
+          <DriveStatePanel />
+        </Panel>
+
+        <Panel
+          title="Erori controller"
+          subtitle="Cadrul 2, descompus pe biți"
+        >
+          <FaultPanel />
         </Panel>
       </section>
 
