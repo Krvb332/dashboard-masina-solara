@@ -2,3 +2,7 @@ dist
 coverage
 node_modules
 package-lock.json
+
+# Registrul de gate-uri are un format strict, cu CHECK/EXPECT/EVIDENCE
+# indentate sub fiecare gate. Prettier reașază liniile și rupe formatul.
+GATES.md

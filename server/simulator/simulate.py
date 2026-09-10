@@ -54,6 +54,25 @@ TRACK_RADIUS_A_M = 250.0
 TRACK_RADIUS_B_M = 140.0
 METERS_PER_DEG_LAT = 111_320.0
 
+# Traseul are o denivelare: fără ea, altitudinea ar fi o linie dreaptă și n-ar
+# permite verificarea profilului de elevație și a calculului de pantă din
+# dashboard. Amplitudinea este realistă pentru un circuit din zona Clujului.
+TRACK_BASE_ELEVATION_M = 340.0
+TRACK_ELEVATION_AMPLITUDE_M = 9.0
+
+# --- pachetul de baterii ---------------------------------------------------
+
+# Abaterea fiecărei celule față de media pachetului, în volți. Tiparul este fix,
+# nu aleator: o celulă slabă trebuie să rămână aceeași celulă de la un eșantion
+# la altul, altfel indicele celulei minime ar sări în fiecare cadru.
+CELL_OFFSETS_V: tuple[float, ...] = tuple(
+    round(0.012 * math.sin(index * 1.7) - (0.045 if index == 16 else 0.0), 4)
+    for index in range(CELLS_IN_SERIES)
+)
+
+PACK_CAPACITY_AH = 45.0
+PACK_DESIGN_CAPACITY_AH = 48.0
+
 
 @dataclass
 class CarState:
@@ -71,6 +90,13 @@ class CarState:
     energy_solar_wh: float = 0.0
     sun_minutes: float = 11 * 60.0  # ora simulată, în minute de la miezul nopții
     faults: set[str] = field(default_factory=set)
+    # Placa de achiziție: contoare proprii, independente de dinamica mașinii.
+    uptime_s: float = 0.0
+    can_errors: int = 0
+    board_temp_c: float = AMBIENT_C + 8.0
+    cycles: float = 12.0
+    tire_temp_c: float = AMBIENT_C
+    elevation_m: float = TRACK_BASE_ELEVATION_M
 
 
 def track_point(theta: float) -> tuple[float, float]:
@@ -82,6 +108,34 @@ def track_point(theta: float) -> tuple[float, float]:
     meters_per_deg_lon = METERS_PER_DEG_LAT * math.cos(math.radians(TRACK_CENTER_LAT))
     lon = TRACK_CENTER_LON + x_m / meters_per_deg_lon
     return lat, lon
+
+
+def track_elevation(theta: float) -> float:
+    """Altitudinea traseului în punctul unghiular dat, în metri.
+
+    O singură creștere pe tur, netedă: pilotul urcă pe jumătate de buclă și
+    coboară pe cealaltă. Panta maximă rezultată este sub 3 %, adică exact
+    domeniul în care corecția de pantă din dashboard contează fără să domine.
+    """
+    return TRACK_BASE_ELEVATION_M + TRACK_ELEVATION_AMPLITUDE_M * math.sin(theta)
+
+
+def track_grade(theta: float, arc_per_theta: float) -> float:
+    """Panta locală ca fracțiune: derivata altitudinii față de arcul parcurs."""
+    return TRACK_ELEVATION_AMPLITUDE_M * math.cos(theta) / max(arc_per_theta, 1.0)
+
+
+def arc_per_theta(theta: float) -> float:
+    """Câți metri de traseu corespund unui radian de parametru, în punctul dat.
+
+    Este ``|dP/dθ|`` pentru elipsa parametrizată ``(a·cos θ, b·sin θ)``. Nu se
+    confundă cu raza de curbură: pe o elipsă cele două diferă cu până la 80 %,
+    iar folosirea razei de curbură pentru avansul unghiular ar face poziția GPS
+    să se deplaseze cu altă viteză decât cea raportată de mașină - exact tipul
+    de nepotrivire pe care panoul „Verificarea mapării poziției" îl semnalează.
+    """
+    a, b = TRACK_RADIUS_A_M, TRACK_RADIUS_B_M
+    return max(math.sqrt((a * math.sin(theta)) ** 2 + (b * math.cos(theta)) ** 2), 1.0)
 
 
 def curvature_radius(theta: float) -> float:
@@ -118,18 +172,28 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     accel = max(-MAX_BRAKE_MS2, min(MAX_ACCEL_MS2, delta_v / max(dt, 0.05)))
     state.speed_ms = max(0.0, state.speed_ms + accel * dt)
 
-    radius = curvature_radius(state.theta)
-    state.theta = (state.theta + state.speed_ms * dt / radius) % (2 * math.pi)
-    if state.theta < state.speed_ms * dt / radius:
+    # Avansul unghiular se calculează din lungimea de arc, nu din raza de
+    # curbură: altfel poziția GPS ar înainta cu altă viteză decât cea raportată.
+    arc = arc_per_theta(state.theta)
+    delta_theta = state.speed_ms * dt / arc
+    state.theta = (state.theta + delta_theta) % (2 * math.pi)
+    if state.theta < delta_theta:
         state.lap += 1
 
     state.distance_m += state.speed_ms * dt
 
     # --- putere ---
+    # Panta intră în bilanț: fără ea, altitudinea raportată ar contrazice
+    # puterea raportată, iar verificarea de coerență din dashboard ar semnala pe
+    # bună dreptate o nepotrivire.
+    grade = track_grade(state.theta, arc)
+    state.elevation_m = track_elevation(state.theta)
+
     rolling = ROLLING_RESISTANCE * MASS_KG * GRAVITY
     drag = 0.5 * AIR_DENSITY * DRAG_AREA * state.speed_ms**2
     inertia = MASS_KG * accel
-    mechanical_w = (rolling + drag + inertia) * state.speed_ms
+    climb = MASS_KG * GRAVITY * math.sin(math.atan(grade))
+    mechanical_w = (rolling + drag + inertia + climb) * state.speed_ms
 
     if mechanical_w >= 0:
         motor_w = mechanical_w / DRIVETRAIN_EFFICIENCY
@@ -158,8 +222,6 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     spread = state.cell_delta_v + abs(current_a) * 0.0009
     if "cell_fault" in state.faults:
         spread += 0.22
-    cell_min = pack_v / CELLS_IN_SERIES - spread / 2
-    cell_max = pack_v / CELLS_IN_SERIES + spread / 2
 
     # --- temperaturi (întârziere de ordinul întâi față de sarcină) ---
     overheat = "overheat" in state.faults
@@ -178,8 +240,66 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     gps_glitch = "gps_glitch" in state.faults
     hdop = (4.8 if gps_glitch else 0.8) + rng.uniform(0, 0.4)
     satellites = float(rng.randint(4, 6) if gps_glitch else rng.randint(9, 14))
+    # Receptorul are dispersie mai mare pe verticală decât pe orizontală;
+    # raportul de ~1,6 este tipic pentru o constelație GPS obișnuită.
+    vdop = hdop * 1.6 + rng.uniform(0, 0.2)
+    # Altitudinea raportată nu este cea a traseului: are zgomotul receptorului.
+    altitude = state.elevation_m + rng.uniform(-0.6, 0.6) * (4.0 if gps_glitch else 1.0)
+    # Tangenta la elipsă dă direcția de deplasare; 0° = nord.
+    heading = (
+        math.degrees(
+            math.atan2(
+                TRACK_RADIUS_A_M * -math.sin(state.theta),
+                TRACK_RADIUS_B_M * math.cos(state.theta),
+            )
+        )
+        + 360.0
+    ) % 360.0
+    gps_speed_kph = state.speed_ms * 3.6 * (1.0 + rng.uniform(-0.01, 0.01))
+    fix_quality = 0.0 if (gps_glitch and satellites < 5) else 1.0
 
     state.sun_minutes += dt / 60.0 * 30.0  # timpul solar curge accelerat
+
+    # --- celule individuale ---
+    cell_average_v = pack_v / CELLS_IN_SERIES
+    imbalance_scale = spread / max(state.cell_delta_v, 1e-6)
+    cells = [
+        cell_average_v + offset * imbalance_scale for offset in CELL_OFFSETS_V
+    ]
+    # Extremele raportate de BMS trebuie să fie chiar extremele celulelor, altfel
+    # verificarea de coerență din dashboard ar semnala corect o nepotrivire.
+    cell_min = min(cells)
+    cell_max = max(cells)
+    cell_min_index = float(cells.index(cell_min) + 1)
+    cell_max_index = float(cells.index(cell_max) + 1)
+    spread = cell_max - cell_min
+
+    # --- placa de achiziție ---
+    state.uptime_s += dt
+    state.board_temp_c += (
+        AMBIENT_C + 14.0 + abs(current_a) * 0.05 - state.board_temp_c
+    ) * dt / 60.0
+    if rng.random() < dt * 0.02:
+        state.can_errors += 1
+
+    # --- anvelope ---
+    state.tire_temp_c += (
+        AMBIENT_C + 6.0 + state.speed_ms * 0.8 - state.tire_temp_c
+    ) * dt / 120.0
+    tire_pressure = 3.2 + (state.tire_temp_c - AMBIENT_C) * 0.006
+
+    # --- controller Mitsuba ---
+    regen_active = 1.0 if motor_w < -1.0 else 0.0
+    regen_power_w = max(0.0, -motor_w)
+    overheat_level = float(
+        3 if state.motor_temp_c > 110 else 2 if state.motor_temp_c > 95 else
+        1 if state.motor_temp_c > 85 else 0
+    )
+    fault_bits = 0
+    if "motor_fault" in state.faults:
+        fault_bits |= (1 << 17) | (1 << 29)
+    if abs(current_a) > 90:
+        fault_bits |= 1 << 23  # limită de curent atinsă: protecția lucrează
 
     return {
         "vehicle_speed_kph": round(state.speed_ms * 3.6, 2),
@@ -211,6 +331,63 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
         "gps_longitude_deg": round(lon, 6),
         "gps_hdop": round(hdop, 2),
         "gps_satellites": satellites,
+        # --- GPS extins ---
+        "gps_altitude_m": round(altitude, 2),
+        "gps_speed_kph": round(gps_speed_kph, 2),
+        "gps_course_deg": round(heading, 1),
+        "gps_fix_quality": fix_quality,
+        "gps_vdop": round(vdop, 2),
+        # --- baterie: capacitate, sănătate, celule ---
+        "battery_capacity_remain_ah": round(PACK_CAPACITY_AH * soc_fraction, 3),
+        "battery_capacity_total_ah": PACK_CAPACITY_AH,
+        "battery_cycles": round(state.cycles, 0),
+        "battery_soh_pct": round(PACK_CAPACITY_AH / PACK_DESIGN_CAPACITY_AH * 100.0, 1),
+        "cell_voltage_delta_v": round(spread, 4),
+        "cell_min_index": cell_min_index,
+        "cell_max_index": cell_max_index,
+        "regen_power_w": round(regen_power_w, 1),
+        **{
+            f"cell_{index + 1:02d}_v": round(value, 4)
+            for index, value in enumerate(cells)
+        },
+        # --- controller Mitsuba ---
+        "motor_current_peak_a": round(abs(current_a) * 1.35, 1),
+        "motor_pwm_duty_pct": round(
+            max(0.0, min(100.0, abs(motor_w) / 5000.0 * 100.0)), 1
+        ),
+        "motor_lead_angle_deg": round(12.0 + abs(motor_w) / 5000.0 * 18.0, 1),
+        "regen_vr_pct": round(regen_active * 45.0, 0),
+        "motor_output_target": round(
+            max(0.0, min(255.0, abs(motor_w) / 5000.0 * 255.0)), 0
+        ),
+        "drive_action": 2.0 if state.speed_ms > 0.2 else 0.0,
+        "power_mode": 0.0,
+        "motor_ctrl_mode": 1.0,
+        "regen_active": regen_active,
+        "motor_overheat_level": overheat_level,
+        "digi_sw_position": 3.0,
+        "motor_fault_code": float(fault_bits),
+        # --- senzori de temperatură ---
+        "temp_ambient_c": round(AMBIENT_C, 1),
+        "temp_cockpit_c": round(AMBIENT_C + 9.0 + state.speed_ms * 0.1, 1),
+        "temp_pack_front_c": round(state.battery_temp_c - battery_delta * 0.4, 2),
+        "temp_pack_rear_c": round(state.battery_temp_c - battery_delta * 0.1, 2),
+        "temp_mppt_c": round(AMBIENT_C + solar_w * 0.018, 1),
+        # --- anvelope ---
+        "tpms_fl_pressure_bar": round(tire_pressure, 3),
+        "tpms_fr_pressure_bar": round(tire_pressure * 0.99, 3),
+        "tpms_rl_pressure_bar": round(tire_pressure * 1.01, 3),
+        "tpms_rr_pressure_bar": round(tire_pressure * 1.005, 3),
+        "tpms_fl_temp_c": round(state.tire_temp_c, 2),
+        "tpms_fr_temp_c": round(state.tire_temp_c * 0.99, 2),
+        "tpms_rl_temp_c": round(state.tire_temp_c * 1.02, 2),
+        "tpms_rr_temp_c": round(state.tire_temp_c * 1.01, 2),
+        # --- placa de achiziție ---
+        "teensy_temp_c": round(state.board_temp_c, 1),
+        "teensy_loop_hz": round(480.0 + rng.uniform(-15, 15), 0),
+        "teensy_can_errors": float(state.can_errors),
+        "teensy_free_ram_kb": round(196.0 + rng.uniform(-6, 6), 0),
+        "teensy_uptime_s": round(state.uptime_s, 0),
     }
 
 
@@ -280,6 +457,8 @@ async def run(args: argparse.Namespace) -> None:
         state.faults.add("cell_fault")
     if args.gps_glitch:
         state.faults.add("gps_glitch")
+    if args.motor_fault:
+        state.faults.add("motor_fault")
 
     sender: HttpSender | MqttSender
     if args.mqtt:
@@ -362,6 +541,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--soc-drain", action="store_true", help="pornește cu baterie scăzută")
     parser.add_argument("--cell-fault", action="store_true", help="dezechilibru între celule")
     parser.add_argument("--gps-glitch", action="store_true", help="degradează precizia GPS")
+    parser.add_argument(
+        "--motor-fault", action="store_true", help="ridică biți în codul de eroare Mitsuba"
+    )
     parser.add_argument("--drop-link", type=float, default=0, help="secunde de tăcere")
     parser.add_argument("--drop-every", type=float, default=20, help="la câte secunde se taie")
 

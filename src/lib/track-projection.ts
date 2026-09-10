@@ -9,8 +9,19 @@
  * funcțională fără internet.
  */
 
-export type Position = { lat: number; lon: number; speed: number }
-export type Projected = { x: number; y: number; speed: number }
+export type Position = {
+  lat: number
+  lon: number
+  speed: number
+  /** Altitudine în metri, dacă receptorul o raportează. */
+  elevation?: number
+}
+export type Projected = {
+  x: number
+  y: number
+  speed: number
+  elevation?: number
+}
 
 export const METERS_PER_DEG_LAT = 111_320
 
@@ -23,15 +34,26 @@ export function pairPositions(
   latitudes: [number, number][],
   longitudes: [number, number][],
   speeds: [number, number][],
+  elevations: [number, number][] = [],
 ): Position[] {
   const lonByTime = new Map(longitudes)
   const speedByTime = new Map(speeds)
+  const elevationByTime = new Map(elevations)
   const result: Position[] = []
 
   for (const [time, lat] of latitudes) {
     const lon = lonByTime.get(time)
     if (lon === undefined) continue
-    result.push({ lat, lon, speed: speedByTime.get(time) ?? 0 })
+
+    // O poziție fără altitudine rămâne fără altitudine. Nu punem `0`: harta
+    // colorată după elevație ar desena un traseu la nivelul mării.
+    const elevation = elevationByTime.get(time)
+    result.push({
+      lat,
+      lon,
+      speed: speedByTime.get(time) ?? 0,
+      ...(elevation === undefined ? {} : { elevation }),
+    })
   }
 
   return result
@@ -78,6 +100,7 @@ export function projectTrack(
     // Latitudinea crește spre nord, iar y-ul canvasului crește în jos.
     y: height - offsetY - (point.lat - minLat) * scale,
     speed: point.speed,
+    ...(point.elevation === undefined ? {} : { elevation: point.elevation }),
   }))
 }
 

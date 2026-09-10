@@ -1,6 +1,9 @@
 import { useErrorStore } from '../stores/error-store'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
+import { useDriverStore } from '../stores/driver-store'
+import { analyticsTotals, resetAnalytics } from './analytics-control'
+import { resetDerivedBuffer } from './derived-buffer'
 import { replayDriver } from './replay-driver'
 import { resetBuffer } from './telemetry-buffer'
 
@@ -53,8 +56,21 @@ export function resetTelemetry(): void {
   }
 
   resetBuffer()
+  resetDerivedBuffer()
   useTelemetryStore.getState().reset()
   useErrorStore.getState().clearAll()
+
+  // Stintul pilotului se taie aici, nu se șterge: energia consumată până acum
+  // rămâne în istoricul lui, iar de la zero începe o bucată nouă. Fără tăiere,
+  // linia de bază ar rămâne peste contoarele resetate și bilanțul stintului ar
+  // deveni permanent zero.
+  const telemetry = useTelemetryStore.getState()
+  useDriverStore.getState().splitStint({
+    totals: analyticsTotals(),
+    vehicleId: telemetry.vehicleId,
+    sessionId: telemetry.sessionId,
+  })
+  resetAnalytics()
 
   control?.reconnect()
 }

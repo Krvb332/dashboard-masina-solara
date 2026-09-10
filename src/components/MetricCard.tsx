@@ -2,6 +2,8 @@ import clsx from 'clsx'
 import {
   BatteryCharging,
   Bolt,
+  CircleDot,
+  Cpu,
   Gauge,
   MapPin,
   Sun,
@@ -36,6 +38,8 @@ const groupIcons: Record<string, LucideIcon> = {
   thermal: Thermometer,
   motor: Waves,
   gps: MapPin,
+  chassis: CircleDot,
+  board: Cpu,
 }
 
 const signalIcons: Record<string, LucideIcon> = {

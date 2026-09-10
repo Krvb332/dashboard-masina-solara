@@ -6,9 +6,11 @@ import {
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { formatClock, formatNumber } from '../lib/format'
+import type { TelemetryRingBuffer } from '../lib/ring-buffer'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
+import type { SignalDefinition } from '../schemas/telemetry'
 import { useTelemetryStore } from '../stores/telemetry-store'
 
 /**
@@ -39,6 +41,17 @@ type TelemetryChartProps = {
   windowMs?: number
   height?: number
   ariaLabel?: string
+  /**
+   * De unde se citesc seriile. Implicit bufferul de telemetrie măsurată;
+   * pagina de statistici trimite bufferul de serii calculate.
+   */
+  source?: TelemetryRingBuffer
+  /**
+   * Definiții pentru semnale care nu sunt în catalogul serverului — mărimile
+   * derivate. Se suprapun peste catalog, deci o cheie reală rămâne descrisă de
+   * server, sursa ei de adevăr.
+   */
+  extraDefinitions?: Record<string, SignalDefinition>
 }
 
 export function TelemetryChart({
@@ -46,9 +59,16 @@ export function TelemetryChart({
   windowMs = 7 * 60_000,
   height = 272,
   ariaLabel,
+  source,
+  extraDefinitions,
 }: TelemetryChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const catalogByKey = useTelemetryStore((state) => state.catalogByKey)
+  const catalog = useTelemetryStore((state) => state.catalogByKey)
+  const catalogByKey = useMemo(
+    () => (extraDefinitions ? { ...catalog, ...extraDefinitions } : catalog),
+    [catalog, extraDefinitions],
+  )
+  const buffer = source ?? telemetryBuffer
   const keys = signalKeys.join('|')
 
   useEffect(() => {
@@ -137,7 +157,7 @@ export function TelemetryChart({
       chart.setOption({
         series: activeKeys.map((key) => ({
           id: key,
-          data: telemetryBuffer.toSeries(key, windowMs, maxPoints),
+          data: buffer.toSeries(key, windowMs, maxPoints),
         })),
       })
     }
@@ -168,7 +188,7 @@ export function TelemetryChart({
       window.removeEventListener('resize', resize)
       chart.dispose()
     }
-  }, [catalogByKey, keys, windowMs])
+  }, [buffer, catalogByKey, keys, windowMs])
 
   return (
     <div

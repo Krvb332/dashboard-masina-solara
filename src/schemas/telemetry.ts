@@ -23,6 +23,8 @@ export const signalGroupSchema = z.enum([
   'thermal',
   'motor',
   'gps',
+  'chassis',
+  'board',
 ])
 
 export const signalSchema = z.object({

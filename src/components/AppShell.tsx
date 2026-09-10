@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import {
   Bolt,
+  ChartLine,
   Circle,
   LayoutDashboard,
   Map,
@@ -8,16 +9,19 @@ import {
   Radio,
   Settings,
   Sun,
+  Users,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useAnalyticsEngine } from '../hooks/useAnalyticsEngine'
 import { useErrorLog } from '../hooks/useErrorLog'
 import { useTelemetryStream } from '../hooks/useTelemetryStream'
 import { API_URL } from '../lib/api'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 import { ConnectionBadge } from './ConnectionBadge'
+import { DriverSwitcher } from './DriverSwitcher'
 import { ErrorPanel, ErrorPanelToggle } from './ErrorPanel'
 import { ErrorToasts } from './ErrorToasts'
 import { ReplayControls } from './ReplayControls'
@@ -31,14 +35,17 @@ import { ReplayControls } from './ReplayControls'
 
 const navigation = [
   { to: '/', label: 'Prezentare', icon: LayoutDashboard, end: true },
+  { to: '/statistici', label: 'Statistici', icon: ChartLine },
   { to: '/energie', label: 'Energie', icon: Bolt },
   { to: '/traseu', label: 'Traseu', icon: Map },
+  { to: '/piloti', label: 'Piloți', icon: Users },
   { to: '/sistem', label: 'Sistem', icon: Settings },
   { to: '/sesiuni', label: 'Sesiuni', icon: Circle },
 ]
 
 export function AppShell() {
   useTelemetryStream()
+  useAnalyticsEngine()
   useErrorLog()
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -151,6 +158,7 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-3">
+            <DriverSwitcher />
             {mode === 'live' ? <ConnectionBadge /> : <ReplayBadge />}
             <ErrorPanelToggle />
           </div>

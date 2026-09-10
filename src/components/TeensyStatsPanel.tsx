@@ -20,9 +20,10 @@ import { useTelemetryStore } from '../stores/telemetry-store'
  */
 
 /**
- * Temperatura plăcii Teensy. Semnalul nu există încă în catalogul serverului —
- * urmează să fie adăugat în firmware. Până atunci cardul afișează „—", ceea ce
- * este corect: nu avem valoarea, deci nu inventăm una din alt senzor.
+ * Temperatura plăcii Teensy. Semnalul este în catalog, dar firmware-ul poate să nu
+ * îl trimită încă; în acel caz cardul afișează „—", ceea ce este corect:
+ * nu avem valoarea, deci nu o deducem din alt senzor. Vezi
+ * `docs/plan-teensy-semnale-noi.md`, secțiunea „Diagnosticul plăcii".
  */
 const BOARD_TEMP_SIGNAL = 'teensy_temp_c'
 
