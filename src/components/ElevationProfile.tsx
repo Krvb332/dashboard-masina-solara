@@ -5,7 +5,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { useEffect, useRef } from 'react'
 import { formatNumber } from '../lib/format'
 import { collectFixes } from '../lib/gps-buffer'
-import { elevationProfile } from '../lib/gps'
+import { anchorStationary, elevationProfile } from '../lib/gps'
 
 /**
  * Profilul de elevație al traseului parcurs: altitudine față de distanță.
@@ -87,7 +87,10 @@ export function ElevationProfileChart({ height = 220 }: ElevationProfileProps) {
     })
 
     const draw = () => {
-      const profile = elevationProfile(collectFixes())
+      // Ancorat, ca și harta. Axa orizontală este distanța parcursă: pe un
+      // vehicul oprit, dispersia receptorului o împinge înainte și profilul se
+      // lățește la nesfârșit, arătând un traseu care nu a avut loc.
+      const profile = elevationProfile(anchorStationary(collectFixes()))
       chart.setOption({ series: [{ id: 'elevation', data: profile.points }] })
     }
 

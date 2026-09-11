@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
+import { anchorStationary } from '../lib/gps'
+import { collectFixes } from '../lib/gps-buffer'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
 import {
   metersPerPixel,
   mixColor,
   niceStep,
-  pairPositions,
   projectTrack,
   type Position,
   type Projected,
@@ -120,11 +121,28 @@ function render(
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
   context.clearRect(0, 0, width, height)
 
-  const points = pairPositions(
-    telemetryBuffer.toSeries('gps_latitude_deg', undefined, TRAIL_POINTS),
-    telemetryBuffer.toSeries('gps_longitude_deg', undefined, TRAIL_POINTS),
+  // Fixurile trec prin ancorare înainte de desen, altfel dispersia normală a
+  // receptorului se desenează ca traseu: pe o mașină oprită ieșea o urmă de
+  // zeci de metri, auto-scalată până umplea pânza, cu bara de scară la 10 m.
+  // Ancorarea păstrează prima citire validă ca punct de pornire și raportează
+  // aceeași poziție cât timp vehiculul nu s-a mutat cu adevărat.
+  //
+  // Viteza se ia separat, pe timp exact: nu este o proprietate a fixului GNSS,
+  // ci semnalul de viteză al vehiculului, care colorează urma.
+  const speedByTime = new Map(
     telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
-    telemetryBuffer.toSeries('gps_altitude_m', undefined, TRAIL_POINTS),
+  )
+  const points: Position[] = anchorStationary(collectFixes(TRAIL_POINTS)).map(
+    (fix) => ({
+      lat: fix.latitude,
+      lon: fix.longitude,
+      speed: speedByTime.get(fix.timeMs) ?? 0,
+      // O poziție fără altitudine rămâne fără altitudine: `0` ar desena
+      // traseul la nivelul mării pe harta colorată după elevație.
+      ...(fix.altitude === undefined || fix.altitude === null
+        ? {}
+        : { elevation: fix.altitude }),
+    }),
   )
 
   if (points.length < 2) {

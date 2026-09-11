@@ -4,6 +4,7 @@ import { useSignal } from '../hooks/useSignal'
 import { useTick } from '../hooks/useTick'
 import { formatNumber, NO_VALUE } from '../lib/format'
 import {
+  anchorStationary,
   bearingDeg,
   elevationProfile,
   haversineMeters,
@@ -39,8 +40,16 @@ const SPEED_MISMATCH_PCT = 25
 
 export function GpsMappingPanel() {
   const now = useTick(REFRESH_MS)
+  // `gps_speed_kph` a fost scos. Panoul era scris pentru un vehicul cu sursă de
+  // viteză independentă de GNSS — o roată cu senzor — și punea cele două una
+  // lângă alta. Mașina asta nu are așa ceva: `vehicle_speed_kph` *este* viteza
+  // raportată de GNSS. Rândul cerea o cheie care nu exista nici în catalog, nici
+  // printre semnalele derivate local, deci arăta „—" la nesfârșit.
+  //
+  // Comparația care a rămas are însă sens și funcționează: viteza dedusă din
+  // pozițiile succesive, față de cea raportată de modul. Sunt două căi diferite
+  // către același număr, iar dezacordul dintre ele chiar spune ceva.
   const wheelSpeed = useSignal('vehicle_speed_kph')
-  const gpsSpeed = useSignal('gps_speed_kph')
 
   const report = useMemo(() => {
     // `now` este dependența care declanșează recalcularea; bufferul nu emite
@@ -48,11 +57,20 @@ export function GpsMappingPanel() {
     void now
 
     const fixes = collectFixes()
-    const quality = inspectFixes(fixes)
-    const profile = elevationProfile(fixes)
-    const lengthM = trackLengthMeters(fixes)
 
-    const usable = fixes.filter((fix) => fix.latitude !== 0)
+    // Raportul de calitate rămâne pe fixurile brute: el spune ce a sosit și de
+    // ce a fost respins, iar pe date filtrate n-ar mai avea ce număra.
+    const quality = inspectFixes(fixes)
+
+    // Tot ce înseamnă deplasare se măsoară pe fixuri ancorate. Altfel, o mașină
+    // oprită raporta lungime de traseu, viteză dedusă și direcție — toate
+    // calculate din dispersia receptorului, toate false, și tocmai în panoul
+    // care există ca să confirme că poziția e corectă.
+    const anchored = anchorStationary(fixes)
+    const profile = elevationProfile(anchored)
+    const lengthM = trackLengthMeters(anchored)
+
+    const usable = anchored.filter((fix) => fix.latitude !== 0)
     const last = usable[usable.length - 1]
     const previous = usable[usable.length - 2]
 
@@ -138,14 +156,6 @@ export function GpsMappingPanel() {
           value={
             wheelSpeed.fresh
               ? `${formatNumber(wheelSpeed.value as number, 1)} km/h`
-              : NO_VALUE
-          }
-        />
-        <Row
-          label="Viteză GNSS"
-          value={
-            gpsSpeed.fresh
-              ? `${formatNumber(gpsSpeed.value as number, 1)} km/h`
               : NO_VALUE
           }
         />

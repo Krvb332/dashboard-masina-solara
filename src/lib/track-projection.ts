@@ -26,6 +26,21 @@ export type Projected = {
 export const METERS_PER_DEG_LAT = 111_320
 
 /**
+ * Cea mai mică fereastră, în metri, pe care harta o desenează.
+ *
+ * Fără un prag, proiecția se scalează la dreptunghiul care încadrează punctele,
+ * oricât de mic ar fi el. O mașină oprită încadrează exact zgomotul
+ * receptorului, iar câțiva metri de dispersie ajung să umple toată pânza: se
+ * vede o urmă agitată, cu bara de scară la 10 m, pe un vehicul care nu s-a
+ * mișcat deloc. Zoomul era corect matematic și complet fals ca informație.
+ *
+ * Douăzeci de metri este puțin peste dispersia unui receptor obișnuit, deci un
+ * vehicul oprit rămâne un punct în mijlocul unei ferestre stabile, iar prima
+ * deplasare reală se citește ca deplasare, nu ca schimbare de scară.
+ */
+export const MIN_SPAN_M = 20
+
+/**
  * Împerechează seriile de latitudine, longitudine și viteză după momentul de
  * timp. Fiecare semnal are propriile eșantioane, iar o poziție fără ambele
  * coordonate nu poate fi desenată.
@@ -83,8 +98,20 @@ export function projectTrack(
   const centerLat = (minLat + maxLat) / 2
   const lonScale = Math.cos((centerLat * Math.PI) / 180)
 
-  const spanLat = Math.max(maxLat - minLat, 1e-6)
-  const spanLon = Math.max((maxLon - minLon) * lonScale, 1e-6)
+  // Pragul se aplică în grade, ca să însemne același lucru pe ambele axe: un
+  // grad de longitudine este mai scurt decât unul de latitudine, iar `lonScale`
+  // a adus deja longitudinea la aceeași unitate.
+  const minSpanDeg = MIN_SPAN_M / METERS_PER_DEG_LAT
+  const dataSpanLat = maxLat - minLat
+  const dataSpanLon = (maxLon - minLon) * lonScale
+  const spanLat = Math.max(dataSpanLat, minSpanDeg)
+  const spanLon = Math.max(dataSpanLon, minSpanDeg)
+
+  // Când pragul este cel care decide fereastra, datele ocupă mai puțin decât
+  // ea. Jumătatea de diferență le împinge în mijloc; fără ea, un vehicul oprit
+  // ar apărea lipit de colțul din stânga-jos, unde pică minimul seriei.
+  const insetLat = (spanLat - dataSpanLat) / 2
+  const insetLon = (spanLon - dataSpanLon) / 2
 
   // Aceeași scară pe ambele axe: altfel un oval ar apărea ca un cerc.
   const scale = Math.min(
@@ -96,9 +123,9 @@ export function projectTrack(
   const offsetY = (height - spanLat * scale) / 2
 
   return points.map((point) => ({
-    x: offsetX + (point.lon - minLon) * lonScale * scale,
+    x: offsetX + (insetLon + (point.lon - minLon) * lonScale) * scale,
     // Latitudinea crește spre nord, iar y-ul canvasului crește în jos.
-    y: height - offsetY - (point.lat - minLat) * scale,
+    y: height - offsetY - (insetLat + (point.lat - minLat)) * scale,
     speed: point.speed,
     ...(point.elevation === undefined ? {} : { elevation: point.elevation }),
   }))

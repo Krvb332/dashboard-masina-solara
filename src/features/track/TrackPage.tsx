@@ -71,11 +71,20 @@ export function TrackPage() {
       </section>
 
       <section className="mt-4">
+        {/*
+          `gps_speed_kph` a fost scos din serii: nu există nici în catalogul
+          serverului, nici printre semnalele derivate local, deci graficul cerea
+          o serie pe care nu o produce nimeni — o legendă fără linie.
+
+          Nici nu era de adăugat. Viteza mașinii *este* cea raportată de GNSS:
+          `vehicle_speed_kph` vine din `gps.speed_kmh`, deci a doua serie ar fi
+          desenat aceleași puncte sub alt nume.
+        */}
         <Panel title="Viteză pe traseu" subtitle="Ultimele 7 minute">
           <TelemetryChart
-            signalKeys={['vehicle_speed_kph', 'gps_speed_kph', 'motor_power_w']}
+            signalKeys={['vehicle_speed_kph', 'motor_power_w']}
             height={240}
-            ariaLabel="Grafic cu viteza mașinii, viteza GNSS și puterea motorului"
+            ariaLabel="Grafic cu viteza mașinii și puterea motorului"
           />
         </Panel>
       </section>

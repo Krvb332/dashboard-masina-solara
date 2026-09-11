@@ -242,6 +242,123 @@ export function trackLengthMeters(fixes: GpsFix[]): number {
   return total
 }
 
+/** Parametrii filtrului de staționare. Metri, unde nu scrie altfel. */
+export const STATIONARY = {
+  /**
+   * Raza minimă sub care o deplasare este considerată zgomot de receptor.
+   *
+   * Un GNSS de consum oprit pe loc se plimbă cu câțiva metri chiar și cu fix
+   * bun; asta nu este o măsurătoare proastă, este felul în care funcționează.
+   */
+  minRadiusM: 4,
+  /**
+   * Cât din rază vine din HDOP-ul raportat.
+   *
+   * Precizia orizontală este aproximativ HDOP înmulțit cu eroarea echivalentă a
+   * receptorului, care la un modul ieftin este de ordinul a câțiva metri. Raza
+   * crește deci odată cu incertitudinea pe care receptorul o declară singur, în
+   * loc să fie un număr fix — prea mare sub cer liber și prea mic sub copaci.
+   */
+  hdopFactorM: 2.5,
+  /**
+   * Câte fixuri consecutive strânse laolaltă declară vehiculul din nou oprit.
+   *
+   * Fără histereză, filtrul ar comuta între „merge" și „stă" la fiecare
+   * eșantion din jurul pragului, iar urma ar alterna între netedă și înghețată.
+   */
+  settleSamples: 5,
+} as const
+
+/** Raza de zgomot a unui fix, în metri. */
+function noiseRadiusM(fix: GpsFix, fallbackHdop: number | null): number {
+  const hdop = isFiniteNumber(fix.hdop)
+    ? fix.hdop
+    : isFiniteNumber(fallbackHdop)
+      ? fallbackHdop
+      : 1
+  return Math.max(STATIONARY.minRadiusM, hdop * STATIONARY.hdopFactorM)
+}
+
+/**
+ * Ține poziția pe loc cât timp vehiculul stă pe loc.
+ *
+ * Problema se vede cel mai bine pe o mașină parcată: harta desena o urmă
+ * agitată de zeci de metri, cu mașina nemișcată. Fiecare punct era o măsurătoare
+ * onestă — dispersia normală a unui receptor — dar desenate una după alta arătau
+ * ca o deplasare care nu a avut loc.
+ *
+ * Regula este ancora, nu netezirea. Prima citire validă devine punctul de
+ * pornire. Fixurile următoare se raportează la ea, nu la cel dinainte: cât timp
+ * rămân în raza de zgomot, poziția raportată *este* ancora, deci seria conține
+ * un singur loc. Din clipa în care un fix iese din rază, vehiculul chiar s-a
+ * mutat, iar filtrul trece în regim de mers și lasă fixurile nealterate.
+ *
+ * Ancora, și nu punctul anterior, este ce face filtrul sigur la viteză mică. Un
+ * prag aplicat între eșantioane consecutive ar șterge mersul la pas: la 10 km/h
+ * o secundă înseamnă 2,8 m, sub orice rază rezonabilă, iar mașina ar părea
+ * oprită cât timp se deplasează încet. Față de o ancoră fixă, aceiași 2,8 m pe
+ * secundă se adună și ies din rază în câteva secunde.
+ *
+ * Timpul, altitudinea și indicatorii de calitate ai fiecărui fix rămân ai lui.
+ * Doar coordonatele sunt înlocuite, și numai cu coordonate care chiar au fost
+ * măsurate — cele ale ancorei. Nu se inventează nicio poziție medie.
+ */
+export function anchorStationary(fixes: GpsFix[]): GpsFix[] {
+  const usable = fixes.filter(isUsableFix)
+  if (usable.length === 0) return []
+
+  const out: GpsFix[] = [usable[0]]
+  let anchor = usable[0]
+  let moving = false
+  /** Ultimele poziții emise, pentru testul de „s-a liniștit". */
+  const recent: GpsFix[] = [usable[0]]
+
+  for (let index = 1; index < usable.length; index += 1) {
+    const fix = usable[index]
+    const radius = noiseRadiusM(fix, anchor.hdop ?? null)
+    const fromAnchor = haversineMeters(anchor, fix)
+
+    if (!moving) {
+      if (fromAnchor !== null && fromAnchor > radius) {
+        moving = true
+        anchor = fix
+        out.push(fix)
+      } else {
+        // Poziția ancorei, dar restul valorilor rămân ale acestui fix: ora lui,
+        // altitudinea lui, calitatea lui. Altfel panourile de calitate ar
+        // îngheța odată cu harta.
+        out.push({
+          ...fix,
+          latitude: anchor.latitude,
+          longitude: anchor.longitude,
+        })
+      }
+    } else {
+      out.push(fix)
+      anchor = fix
+    }
+
+    recent.push(out[out.length - 1])
+    if (recent.length > STATIONARY.settleSamples) recent.shift()
+
+    // Revenirea la oprit cere mai multe fixuri strânse laolaltă, ca un semafor
+    // să nu comute filtrul înainte și înapoi la fiecare eșantion.
+    if (moving && recent.length === STATIONARY.settleSamples) {
+      const newest = recent[recent.length - 1]
+      const settled = recent.every((earlier) => {
+        const spread = haversineMeters(earlier, newest)
+        return spread !== null && spread <= radius
+      })
+      if (settled) {
+        moving = false
+        anchor = newest
+      }
+    }
+  }
+
+  return out
+}
+
 /**
  * Elimină fixurile care implică o viteză imposibilă față de cel anterior.
  * Un singur salt de receptor desenează o linie dreaptă peste toată harta.
