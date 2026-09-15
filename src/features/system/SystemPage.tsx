@@ -4,6 +4,7 @@ import { DriveStatePanel } from '../../components/DriveStatePanel'
 import { FaultPanel } from '../../components/FaultPanel'
 import { MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { SignalMappingPanel } from '../../components/SignalMappingPanel'
 import { SystemResetButton } from '../../components/SystemResetButton'
 import { fetchHealth } from '../../lib/api'
 import {
@@ -34,6 +35,8 @@ export function SystemPage() {
     (signal) =>
       !isInDriveStatePanel(signal.key) && !isFaultCodeSignal(signal.key),
   )
+  const chassisSignals = useSignalsByGroup('chassis')
+  const boardSignals = useSignalsByGroup('board')
 
   return (
     <>
@@ -70,6 +73,45 @@ export function SystemPage() {
 
         <Panel title="Erori controller" subtitle="Cadrul 2, descompus pe biți">
           <FaultPanel />
+        </Panel>
+      </section>
+
+      {(chassisSignals.length > 0 || boardSignals.length > 0) && (
+        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {chassisSignals.length > 0 && (
+            <Panel
+              title="Șasiu și anvelope"
+              subtitle="Presiune și temperatură pe fiecare roată"
+            >
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {chassisSignals.map((signal) => (
+                  <MetricRow key={signal.key} signalKey={signal.key} />
+                ))}
+              </ul>
+            </Panel>
+          )}
+
+          {boardSignals.length > 0 && (
+            <Panel
+              title="Placa de achiziție"
+              subtitle="Starea firmware-ului, nu a mașinii"
+            >
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {boardSignals.map((signal) => (
+                  <MetricRow key={signal.key} signalKey={signal.key} />
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </section>
+      )}
+
+      <section className="mt-4">
+        <Panel
+          title="Verificarea mapării semnalelor"
+          subtitle="Semnalele redundante trebuie să se confirme reciproc"
+        >
+          <SignalMappingPanel />
         </Panel>
       </section>
 

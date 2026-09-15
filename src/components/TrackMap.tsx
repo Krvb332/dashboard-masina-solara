@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
+import { anchorStationary } from '../lib/gps'
+import { collectFixes } from '../lib/gps-buffer'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
 import {
   metersPerPixel,
   mixColor,
   niceStep,
-  pairPositions,
   projectTrack,
   type Position,
   type Projected,
@@ -27,14 +28,31 @@ const TRAIL_POINTS = 3000
 
 const COLD = [96, 165, 250] as const // albastru: viteză mică
 const HOT = [251, 191, 36] as const // chihlimbar: viteză mare
+const LOW = [52, 211, 153] as const // verde: punctul cel mai de jos
+const HIGH = [244, 114, 182] as const // roz: punctul cel mai de sus
+
+/** După ce mărime se colorează urma. */
+export type TrackColorBy = 'speed' | 'elevation'
 
 type TrackMapProps = {
   height?: number
   className?: string
+  /**
+   * Elevația se desenează doar dacă receptorul chiar o trimite; altfel urma
+   * revine la culoarea după viteză, în loc să apară uniformă și să sugereze un
+   * traseu perfect plan.
+   */
+  colorBy?: TrackColorBy
 }
 
-export function TrackMap({ height = 320, className }: TrackMapProps) {
+export function TrackMap({
+  height = 320,
+  className,
+  colorBy = 'speed',
+}: TrackMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const modeRef = useRef<TrackColorBy>(colorBy)
+  modeRef.current = colorBy
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -50,13 +68,17 @@ export function TrackMap({ height = 320, className }: TrackMapProps) {
       frame = requestAnimationFrame(draw)
       if (now - lastDraw < REDRAW_INTERVAL_MS) return
       lastDraw = now
-      render(canvas as HTMLCanvasElement, context as CanvasRenderingContext2D)
+      render(
+        canvas as HTMLCanvasElement,
+        context as CanvasRenderingContext2D,
+        modeRef.current,
+      )
     }
 
     const resizeObserver =
       typeof ResizeObserver === 'undefined'
         ? undefined
-        : new ResizeObserver(() => render(canvas, context))
+        : new ResizeObserver(() => render(canvas, context, modeRef.current))
     resizeObserver?.observe(canvas)
 
     return () => {
@@ -71,12 +93,21 @@ export function TrackMap({ height = 320, className }: TrackMapProps) {
       style={{ height }}
       className={className ?? 'w-full rounded-xl bg-black/25'}
       role="img"
-      aria-label="Harta traseului cu poziția curentă a mașinii"
+      aria-label={
+        colorBy === 'elevation'
+          ? 'Harta traseului, colorată după altitudine'
+          : 'Harta traseului cu poziția curentă a mașinii'
+      }
+      data-color-by={colorBy}
     />
   )
 }
 
-function render(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+function render(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  colorBy: TrackColorBy,
+) {
   const ratio = window.devicePixelRatio || 1
   const width = canvas.clientWidth
   const height = canvas.clientHeight
@@ -90,10 +121,28 @@ function render(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
   context.clearRect(0, 0, width, height)
 
-  const points = pairPositions(
-    telemetryBuffer.toSeries('gps_latitude_deg', undefined, TRAIL_POINTS),
-    telemetryBuffer.toSeries('gps_longitude_deg', undefined, TRAIL_POINTS),
+  // Fixurile trec prin ancorare înainte de desen, altfel dispersia normală a
+  // receptorului se desenează ca traseu: pe o mașină oprită ieșea o urmă de
+  // zeci de metri, auto-scalată până umplea pânza, cu bara de scară la 10 m.
+  // Ancorarea păstrează prima citire validă ca punct de pornire și raportează
+  // aceeași poziție cât timp vehiculul nu s-a mutat cu adevărat.
+  //
+  // Viteza se ia separat, pe timp exact: nu este o proprietate a fixului GNSS,
+  // ci semnalul de viteză al vehiculului, care colorează urma.
+  const speedByTime = new Map(
     telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
+  )
+  const points: Position[] = anchorStationary(collectFixes(TRAIL_POINTS)).map(
+    (fix) => ({
+      lat: fix.latitude,
+      lon: fix.longitude,
+      speed: speedByTime.get(fix.timeMs) ?? 0,
+      // O poziție fără altitudine rămâne fără altitudine: `0` ar desena
+      // traseul la nivelul mării pe harta colorată după elevație.
+      ...(fix.altitude === undefined || fix.altitude === null
+        ? {}
+        : { elevation: fix.altitude }),
+    }),
   )
 
   if (points.length < 2) {
@@ -102,17 +151,29 @@ function render(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
   }
 
   const projected = projectTrack(points, width, height, PADDING)
-  drawTrail(context, projected)
+  const hasElevation = projected.some((point) => point.elevation !== undefined)
+  drawTrail(context, projected, colorBy === 'elevation' && hasElevation)
   drawStart(context, projected[0])
   drawCurrent(context, projected[projected.length - 1])
   drawScale(context, points, projected, width, height)
 }
 
-function drawTrail(context: CanvasRenderingContext2D, points: Projected[]) {
-  const speeds = points.map((point) => point.speed)
-  const minSpeed = Math.min(...speeds)
-  const maxSpeed = Math.max(...speeds)
-  const span = Math.max(maxSpeed - minSpeed, 1)
+function drawTrail(
+  context: CanvasRenderingContext2D,
+  points: Projected[],
+  byElevation: boolean,
+) {
+  const values = points.map((point) =>
+    byElevation ? (point.elevation ?? Number.NaN) : point.speed,
+  )
+  const usable = values.filter((value) => !Number.isNaN(value))
+  const min = usable.length > 0 ? Math.min(...usable) : 0
+  const max = usable.length > 0 ? Math.max(...usable) : 1
+  // Un interval minim: pe un traseu plan, altfel fiecare metru de zgomot ar
+  // deveni un salt de culoare de la un capăt la celălalt al paletei.
+  const span = Math.max(max - min, byElevation ? 5 : 1)
+
+  const [cold, hot] = byElevation ? [LOW, HIGH] : [COLD, HOT]
 
   context.lineWidth = 2.5
   context.lineCap = 'round'
@@ -121,8 +182,13 @@ function drawTrail(context: CanvasRenderingContext2D, points: Projected[]) {
   for (let index = 1; index < points.length; index += 1) {
     const from = points[index - 1]
     const to = points[index]
+    const value = values[index]
 
-    context.strokeStyle = mixColor(COLD, HOT, (to.speed - minSpeed) / span)
+    // Fără valoare pentru segmentul curent, desenăm neutru — nu inventăm o
+    // poziție în paletă pentru un punct despre care nu știm nimic.
+    context.strokeStyle = Number.isNaN(value)
+      ? 'rgba(113, 113, 122, 0.8)'
+      : mixColor(cold, hot, (value - min) / span)
     context.beginPath()
     context.moveTo(from.x, from.y)
     context.lineTo(to.x, to.y)

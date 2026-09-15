@@ -4,7 +4,7 @@ import { Panel } from '../../components/Panel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { useSignalsByGroup } from '../../hooks/useSignal'
 import { formatDuration, formatNumber, NO_VALUE } from '../../lib/format'
-import { isInCellPanel } from '../../lib/signal-groups'
+import { isInCapacityPanel, isInCellPanel } from '../../lib/signal-groups'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
@@ -22,7 +22,8 @@ export function EnergyPage() {
     (signal) =>
       !signal.key.startsWith('mppt') &&
       !signal.overview &&
-      !isInCellPanel(signal.key),
+      !isInCellPanel(signal.key) &&
+      !isInCapacityPanel(signal.key),
   )
 
   return (
@@ -72,9 +73,11 @@ export function EnergyPage() {
             <MetricRow signalKey="battery_soh_pct" />
           </ul>
           <p className="mt-3 text-xs text-zinc-500">
-            BMS-ul ANT raportează capacitatea învățată, nu pe cea de proiect,
-            deci starea de sănătate nu se poate deduce din ea și rămâne
-            indisponibilă.
+            BMS-ul ANT raportează capacitatea învățată, nu pe cea de proiect.
+            Starea de sănătate apare doar dacă firmware-ul cunoaște capacitatea
+            de proiect și o calculează el; altfel rămâne „—", ceea ce este
+            adevărat, spre deosebire de un procent dedus dintr-o referință care
+            lipsește.
           </p>
         </Panel>
       </section>

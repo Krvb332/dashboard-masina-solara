@@ -27,6 +27,18 @@ export function isInCellPanel(key: string): boolean {
   return isCellSignal(key) || CELL_PANEL_KEYS.has(key)
 }
 
+/** Semnalele pe care panoul „Capacitate și cicluri" le arată deja. */
+const CAPACITY_PANEL_KEYS = new Set([
+  'battery_capacity_remain_ah',
+  'battery_capacity_total_ah',
+  'battery_cycles',
+  'battery_soh_pct',
+])
+
+export function isInCapacityPanel(key: string): boolean {
+  return CAPACITY_PANEL_KEYS.has(key)
+}
+
 /** Semnalele de motor pe care `DriveStatePanel` le arată ca insigne. */
 const DRIVE_STATE_KEYS = new Set([
   'drive_action',

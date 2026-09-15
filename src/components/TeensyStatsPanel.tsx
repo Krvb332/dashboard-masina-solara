@@ -20,11 +20,16 @@ import { useTelemetryStore } from '../stores/telemetry-store'
  */
 
 /**
- * Temperatura plăcii Teensy. Semnalul nu există încă în catalogul serverului —
- * urmează să fie adăugat în firmware. Până atunci cardul afișează „—", ceea ce
- * este corect: nu avem valoarea, deci nu inventăm una din alt senzor.
+ * Temperatura plăcii Teensy.
+ *
+ * Cheia este `temp_teensy_c`, nu `teensy_temp_c`. Toate temperaturile din
+ * catalog urmează același tipar — `temp_ambient_c`, `temp_bms_mos_c` — pentru
+ * că serverul le construiește din numele senzorului trimis de firmware, iar
+ * placa trimite `teensy`. Cu numele inversat, cardul afișa „—" la nesfârșit, iar
+ * asta se citea ca „firmware-ul nu trimite încă valoarea". O trimite de la bun
+ * început, în același mesaj cu temperaturile bateriei.
  */
-const BOARD_TEMP_SIGNAL = 'teensy_temp_c'
+const BOARD_TEMP_SIGNAL = 'temp_teensy_c'
 
 /** Peste atât, „conectat" înseamnă de fapt „conectat, dar mut". */
 const SILENT_LINK_MS = 3000
