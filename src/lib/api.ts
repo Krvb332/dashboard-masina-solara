@@ -10,6 +10,7 @@ import {
   type SessionInfo,
   type SignalCatalog,
 } from '../schemas/telemetry'
+import { weatherReportSchema, type WeatherReport } from '../schemas/weather'
 import { z } from 'zod'
 
 /**
@@ -126,6 +127,44 @@ export function fetchHistory(query: HistoryQuery = {}): Promise<Sample[]> {
   if (query.offset) params.set('offset', String(query.offset))
 
   return request(`/api/v1/history?${params}`, z.array(sampleSchema))
+}
+
+/**
+ * Vremea de la poziția mașinii.
+ *
+ * Cheia furnizorului stă pe server, nu aici: orice variabilă `VITE_*` ajunge în
+ * textul livrat browserului, iar o cheie Google publicată este o cheie
+ * pierdută. Serverul o ține, o folosește și întoarce doar rezultatul.
+ *
+ * Fără coordonate, serverul folosește ultimul fix GPS pe care îl are el, apoi
+ * coordonatele configurate ale circuitului. Răspunsul spune întotdeauna care
+ * dintre ele a fost folosită.
+ */
+export function fetchWeather(
+  latitude?: number | null,
+  longitude?: number | null,
+): Promise<WeatherReport> {
+  const params = new URLSearchParams()
+  if (
+    latitude !== null &&
+    latitude !== undefined &&
+    Number.isFinite(latitude)
+  ) {
+    params.set('lat', String(latitude))
+  }
+  if (
+    longitude !== null &&
+    longitude !== undefined &&
+    Number.isFinite(longitude)
+  ) {
+    params.set('lon', String(longitude))
+  }
+
+  const query = params.toString()
+  return request(
+    query ? `/api/v1/weather?${query}` : '/api/v1/weather',
+    weatherReportSchema,
+  )
 }
 
 export function exportUrl(sessionId: string): string {

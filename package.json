@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench --run",
+    "test:perf": "npm run bench && cd server && .venv/bin/python -m pytest tests/test_perf.py -q -m perf -s",
     "typecheck": "tsc -b --pretty false",
     "verify:signals": "node scripts/verify-signal-mapping.mjs",
     "verify:catalog": "node scripts/verify-catalog-additive.mjs",

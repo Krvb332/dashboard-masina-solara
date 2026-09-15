@@ -3,6 +3,7 @@ import {
   Bolt,
   ChartLine,
   Circle,
+  CloudSun,
   LayoutDashboard,
   Map,
   Menu,
@@ -12,12 +13,14 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAnalyticsEngine } from '../hooks/useAnalyticsEngine'
 import { useErrorLog } from '../hooks/useErrorLog'
 import { useTelemetryStream } from '../hooks/useTelemetryStream'
+import { useWeather } from '../hooks/useWeather'
 import { API_URL } from '../lib/api'
+import { safeStorage } from '../lib/safe-storage'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 import { ConnectionBadge } from './ConnectionBadge'
@@ -38,17 +41,40 @@ const navigation = [
   { to: '/statistici', label: 'Statistici', icon: ChartLine },
   { to: '/energie', label: 'Energie', icon: Bolt },
   { to: '/traseu', label: 'Traseu', icon: Map },
+  { to: '/vreme', label: 'Vreme', icon: CloudSun },
   { to: '/piloti', label: 'Piloți', icon: Users },
   { to: '/sistem', label: 'Sistem', icon: Settings },
   { to: '/sesiuni', label: 'Sesiuni', icon: Circle },
 ]
 
+const SIDEBAR_KEY = 'tucn:sidebar-open'
+const DESKTOP_QUERY = '(min-width: 1024px)'
+
+/** Adevărat pe ecranele unde bara laterală stă permanent lângă conținut. */
+function isDesktop(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia?.(DESKTOP_QUERY).matches ?? false
+}
+
+/**
+ * Bara laterală rămâne deschisă între reîncărcări dacă nu a fost închisă
+ * explicit: pe un laptop din pitlane meniul vizibil este starea utilă.
+ */
+function readSidebarPreference(): boolean {
+  return safeStorage().getItem(SIDEBAR_KEY) !== 'closed'
+}
+
 export function AppShell() {
   useTelemetryStream()
   useAnalyticsEngine()
+  useWeather()
   useErrorLog()
 
+  // Două stări separate: sertarul peste conținut (mobil) și coloana fixă
+  // (desktop). Aceeași stare pentru amândouă ar redeschide sertarul mobil
+  // doar pentru că bara era deschisă pe ecran mare.
   const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarPreference)
   const location = useLocation()
   const mode = useSessionStore((state) => state.mode)
   const vehicleId = useTelemetryStore((state) => state.vehicleId)
@@ -58,8 +84,38 @@ export function AppShell() {
 
   useEffect(() => setMenuOpen(false), [location.pathname])
 
+  useEffect(() => {
+    safeStorage().setItem(SIDEBAR_KEY, sidebarOpen ? 'open' : 'closed')
+  }, [sidebarOpen])
+
+  const openNavigation = useCallback(() => {
+    if (isDesktop()) setSidebarOpen(true)
+    else setMenuOpen(true)
+  }, [])
+
+  const closeNavigation = useCallback(() => {
+    if (isDesktop()) setSidebarOpen(false)
+    else setMenuOpen(false)
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
+
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+    <div
+      className={clsx(
+        'min-h-screen lg:grid',
+        sidebarOpen
+          ? 'lg:grid-cols-[232px_minmax(0,1fr)]'
+          : 'lg:grid-cols-[minmax(0,1fr)]',
+      )}
+    >
       {menuOpen && (
         <button
           type="button"
@@ -70,9 +126,11 @@ export function AppShell() {
       )}
 
       <aside
+        id="navigatie-laterala"
         className={clsx(
-          'fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-white/10 bg-zinc-950 px-4 py-6 transition-transform lg:static lg:w-auto lg:translate-x-0 lg:bg-black/20',
+          'fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-y-auto border-r border-white/10 bg-zinc-950 px-4 py-6 transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 lg:self-start lg:bg-black/20',
           menuOpen ? 'translate-x-0' : '-translate-x-full',
+          !sidebarOpen && 'lg:hidden',
         )}
       >
         <div className="flex min-h-11 items-center gap-3 px-3">
@@ -87,9 +145,11 @@ export function AppShell() {
           </div>
           <button
             type="button"
-            className="ml-auto grid size-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/5 lg:hidden"
-            onClick={() => setMenuOpen(false)}
+            className="ml-auto grid size-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white"
+            onClick={closeNavigation}
             aria-label="Închide meniul"
+            aria-controls="navigatie-laterala"
+            aria-expanded="true"
           >
             <X size={18} aria-hidden="true" />
           </button>
@@ -141,9 +201,14 @@ export function AppShell() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="grid size-11 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-300 lg:hidden"
-              onClick={() => setMenuOpen(true)}
+              className={clsx(
+                'grid size-11 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white',
+                sidebarOpen && 'lg:hidden',
+              )}
+              onClick={openNavigation}
               aria-label="Deschide meniul"
+              aria-controls="navigatie-laterala"
+              aria-expanded={false}
             >
               <Menu size={20} aria-hidden="true" />
             </button>

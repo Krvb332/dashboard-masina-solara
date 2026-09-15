@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel'
 import { TeensyStatsPanel } from '../../components/TeensyStatsPanel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap } from '../../components/TrackMap'
+import { WeatherSummary } from '../../components/WeatherPanel'
 import { useOverviewSignals } from '../../hooks/useSignal'
 import { useStreamStats } from '../../hooks/useStreamStats'
 import { useTelemetryStore } from '../../stores/telemetry-store'
@@ -72,6 +73,23 @@ export function DashboardPage() {
             height={260}
             ariaLabel="Grafic cu viteza mașinii"
           />
+        </Panel>
+      </section>
+
+      <section className="mt-4">
+        <Panel
+          title="Vreme la fața locului"
+          subtitle="Condițiile care schimbă consumul și aportul solar"
+          action={
+            <Link
+              to="/vreme"
+              className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
+            >
+              Detalii
+            </Link>
+          }
+        >
+          <WeatherSummary />
         </Panel>
       </section>
     </>

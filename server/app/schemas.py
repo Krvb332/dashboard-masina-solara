@@ -111,3 +111,100 @@ class HealthResponse(BaseModel):
     last_message_at: datetime | None
     stats: StreamStats
     recording_session_id: str | None
+
+
+# --- vreme ----------------------------------------------------------------
+#
+# Contractul secțiunii meteo. Oglindește ``src/schemas/weather.ts``.
+#
+# Fiecare mărime este opțională prin construcție: furnizorul nu raportează toate
+# câmpurile în toate zonele și la toate orele (UV-ul lipsește noaptea, rafala
+# lipsește pe vânt calm). Un câmp absent rămâne ``None`` și se afișează „—".
+# Nu există valoare implicită numerică nicăieri în modelele de mai jos, tocmai
+# ca o lipsă să nu poată fi confundată cu o măsurătoare.
+
+WeatherStatus = Literal["ok", "stale", "unavailable"]
+
+
+class WeatherCondition(BaseModel):
+    """Starea vremii în formă descriptivă, așa cum o numește furnizorul."""
+
+    type: str | None = None
+    description: str | None = None
+    icon_uri: str | None = None
+
+
+class WeatherMeasurements(BaseModel):
+    """Mărimile numerice, toate în sistem metric după normalizare."""
+
+    temperature_c: float | None = None
+    feels_like_c: float | None = None
+    dew_point_c: float | None = None
+    heat_index_c: float | None = None
+    wet_bulb_c: float | None = None
+    relative_humidity_pct: float | None = None
+    # Presiune la nivelul mării; corecția la altitudinea circuitului se face în
+    # frontend, unde este cunoscută elevația GPS.
+    pressure_hpa: float | None = None
+    cloud_cover_pct: float | None = None
+    uv_index: float | None = None
+    visibility_km: float | None = None
+    wind_speed_kph: float | None = None
+    wind_gust_kph: float | None = None
+    # Direcția DIN CARE bate vântul, în grade față de nord - convenția
+    # meteorologică. Componenta pe direcția de mers se calculează din ea.
+    wind_from_deg: float | None = None
+    wind_cardinal: str | None = None
+    precipitation_probability_pct: float | None = None
+    precipitation_type: str | None = None
+    precipitation_mm: float | None = None
+    snow_mm: float | None = None
+    thunderstorm_probability_pct: float | None = None
+    is_daytime: bool | None = None
+
+
+class WeatherHistory(BaseModel):
+    """Ultimele 24 de ore, pentru context. Furnizate de ``currentConditions``."""
+
+    max_temperature_c: float | None = None
+    min_temperature_c: float | None = None
+    temperature_change_c: float | None = None
+    precipitation_mm: float | None = None
+
+
+class WeatherObservation(BaseModel):
+    observed_at: datetime | None = None
+    time_zone: str | None = None
+    condition: WeatherCondition = Field(default_factory=WeatherCondition)
+    values: WeatherMeasurements = Field(default_factory=WeatherMeasurements)
+    history: WeatherHistory = Field(default_factory=WeatherHistory)
+
+
+class WeatherForecastHour(BaseModel):
+    start_time: datetime
+    end_time: datetime | None = None
+    condition: WeatherCondition = Field(default_factory=WeatherCondition)
+    values: WeatherMeasurements = Field(default_factory=WeatherMeasurements)
+
+
+class WeatherLocation(BaseModel):
+    latitude: float
+    longitude: float
+    # „gps" sau „configurat" - echipa trebuie să știe dacă vremea afișată este
+    # a mașinii sau a unui punct fix presupus.
+    source: str
+
+
+class WeatherReport(BaseModel):
+    """Ce primește dashboardul de la ``GET /api/v1/weather``."""
+
+    status: WeatherStatus
+    provider: str
+    location: WeatherLocation | None = None
+    fetched_at: datetime | None = None
+    # Vechimea observației servite, în secunde. Esențială pe ``stale``.
+    age_s: float | None = None
+    # De ce nu este „ok". Text pentru om, afișat ca atare în interfață.
+    reason: str | None = None
+    current: WeatherObservation | None = None
+    forecast: list[WeatherForecastHour] = Field(default_factory=list)
