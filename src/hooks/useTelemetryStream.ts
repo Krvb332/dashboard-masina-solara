@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { API_TOKEN, WS_URL, fetchCatalog } from '../lib/api'
-import { registerTelemetryControl } from '../lib/telemetry-control'
+import {
+  consumeSnapshotHistoryDiscard,
+  registerTelemetryControl,
+} from '../lib/telemetry-control'
 import { pushSample, pushSamples, resetBuffer } from '../lib/telemetry-buffer'
 import { TelemetryClient } from '../lib/ws-client'
 import type { TelemetryFrame } from '../schemas/telemetry'
@@ -57,7 +60,14 @@ export function useTelemetryStream(): void {
 
         if (frame.type === 'snapshot') {
           resetBuffer()
-          pushSamples(frame.history)
+          // Dupa un reset manual pastram graficul gol: utilizatorul tocmai a
+          // cerut ecran curat, iar reconectarea este consecinta cererii lui,
+          // nu o conectare noua care ar merita istoric.
+          if (!consumeSnapshotHistoryDiscard()) {
+            pushSamples(frame.history)
+          }
+          // Se noteaza in ambele cazuri: altfel ultimul esantion din istoric
+          // ar fi reintrodus de primul cadru obisnuit care il poarta ca `latest`.
           lastPushedAt.current =
             frame.history.at(-1)?.server_received_at ?? null
         } else if (
@@ -89,7 +99,7 @@ export function useTelemetryStream(): void {
         // și graficul ar rămâne gol până la următoarea măsurătoare nouă.
         lastPushedAt.current = null
         pendingFrame.current = null
-        client.reconnect()
+        client.reconnect({ forgetHistory: true })
       },
     })
 

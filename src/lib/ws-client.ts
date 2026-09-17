@@ -84,9 +84,20 @@ export class TelemetryClient {
    * revine la zero, altfel o legătură care a picat de zece ori ar mai aștepta
    * cinci secunde după ce omul apasă butonul.
    */
-  reconnect(): void {
+  reconnect({ forgetHistory = false }: { forgetHistory?: boolean } = {}): void {
     this.closedByUser = false
     this.clearTimers()
+
+    // `forgetHistory` este pentru resetul manual. La o reconectare obisnuita
+    // (cadere de retea) backfillul este exact ce vrem: recupereaza golul din
+    // grafic. Dupa un reset insa, ar cere prin REST pana la 3000 de esantioane
+    // si ar umple la loc graficul pe care tocmai l-am golit -- a doua cale de
+    // reumplere, pe langa istoricul din snapshotul WebSocket.
+    // Uitand momentul, `backfill()` iese din prima instructiune si nici nu mai
+    // face cererea.
+    if (forgetHistory) {
+      this.lastServerReceivedAt = null
+    }
 
     const socket = this.socket
     this.socket = null

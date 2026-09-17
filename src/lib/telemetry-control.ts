@@ -23,6 +23,28 @@ export type TelemetryControl = {
 
 let control: TelemetryControl | null = null
 
+/**
+ * Snapshotul care urmeaza dupa un reset manual trebuie sa vina fara istoric.
+ *
+ * Serverul trimite la FIECARE conectare un snapshot cu pana la 600 de
+ * esantioane, si are dreptate sa o faca: un dashboard deschis acum nu trebuie
+ * sa astepte zece minute ca sa aiba un grafic. Dar `resetTelemetry` reconecteaza
+ * exact pentru a reporni legatura, deci fara steagul asta secventa devine
+ * "golesc graficul -> reconectez -> serverul mi-l umple la loc", si butonul
+ * pare ca nu face nimic.
+ *
+ * Distinctia este a clientului, nu a serverului: o conectare obisnuita VREA
+ * istoricul, doar cea de dupa un reset nu.
+ */
+let discardNextSnapshotHistory = false
+
+/** Adevarat o singura data, pentru snapshotul de dupa un reset manual. */
+export function consumeSnapshotHistoryDiscard(): boolean {
+  const discard = discardNextSnapshotHistory
+  discardNextSnapshotHistory = false
+  return discard
+}
+
 /** Chemat de `useTelemetryStream` la montare. Întoarce funcția de dezînregistrare. */
 export function registerTelemetryControl(next: TelemetryControl): () => void {
   control = next
@@ -72,5 +94,7 @@ export function resetTelemetry(): void {
   })
   resetAnalytics()
 
+  // Se ridica INAINTE de reconectare: snapshotul poate sosi imediat.
+  discardNextSnapshotHistory = true
   control?.reconnect()
 }
