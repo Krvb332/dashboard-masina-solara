@@ -3,8 +3,14 @@
 Permite dezvoltarea și testarea întregului lanț fără mașina reală. Modelul nu
 este o simulare de înaltă fidelitate, dar respectă legăturile fizice care contează
 pentru dashboard: puterea urmează viteza, SOC-ul scade pe măsură ce consumi,
-temperaturile urcă cu întârziere față de sarcină, iar traseul GPS este o buclă
-închisă, deci harta și numărătorul de tururi au sens.
+temperaturile urcă cu întârziere față de sarcină, iar traseul GPS este chiar
+linia mediană a circuitului Zolder, deci harta, sectoarele și numărătorul de
+tururi corespund cu ce proiectează dashboardul.
+
+Geometria vine din ``track_zolder``: aceleași noduri pe care dashboardul își
+proiectează fixurile. Mașina înaintează pe lungime de arc, iar viteza în viraj
+este limitată de raza de curbură reală a circuitului - deci șicanele sunt lente
+și liniile drepte rapide, fără ca nimic să fie ajustat de mână.
 
 Exemple:
 
@@ -27,6 +33,17 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from .track_zolder import (
+    TRACK_LENGTH_M,
+    TRACK_NAME,
+    curvature_radius_at,
+    elevation_at,
+    grade_at,
+    heading_at,
+    point_at,
+    sector_at,
+)
+
 # --- parametrii mașinii ----------------------------------------------------
 
 MASS_KG = 280.0
@@ -46,19 +63,11 @@ MAX_ACCEL_MS2 = 0.9
 MAX_BRAKE_MS2 = 1.6
 AMBIENT_C = 24.0
 
-# --- traseul (buclă eliptică lângă Cluj-Napoca) ----------------------------
-
-TRACK_CENTER_LAT = 46.7712
-TRACK_CENTER_LON = 23.6236
-TRACK_RADIUS_A_M = 250.0
-TRACK_RADIUS_B_M = 140.0
-METERS_PER_DEG_LAT = 111_320.0
-
-# Traseul are o denivelare: fără ea, altitudinea ar fi o linie dreaptă și n-ar
-# permite verificarea profilului de elevație și a calculului de pantă din
-# dashboard. Amplitudinea este realistă pentru un circuit din zona Clujului.
-TRACK_BASE_ELEVATION_M = 340.0
-TRACK_ELEVATION_AMPLITUDE_M = 9.0
+# --- traseul (Circuit Zolder, geometrie reală) -----------------------------
+#
+# Denivelarea nu mai este inventată: vine din modelul de teren, odată cu
+# nodurile. Zolder urcă și coboară vreo șaptesprezece metri pe tur, suficient
+# cât profilul de elevație și corecția de pantă din dashboard să aibă ce arăta.
 
 # --- pachetul de baterii ---------------------------------------------------
 
@@ -76,7 +85,7 @@ PACK_DESIGN_CAPACITY_AH = 48.0
 
 @dataclass
 class CarState:
-    theta: float = 0.0  # poziția unghiulară pe buclă
+    s_m: float = 0.0  # distanța de la linia de start, pe linia mediană
     speed_ms: float = 8.0
     soc_pct: float = 92.0
     distance_m: float = 0.0
@@ -96,58 +105,41 @@ class CarState:
     board_temp_c: float = AMBIENT_C + 8.0
     cycles: float = 12.0
     tire_temp_c: float = AMBIENT_C
-    elevation_m: float = TRACK_BASE_ELEVATION_M
+    elevation_m: float = elevation_at(0.0)
 
 
-def track_point(theta: float) -> tuple[float, float]:
-    """Coordonate GPS pentru poziția unghiulară dată."""
-    x_m = TRACK_RADIUS_A_M * math.cos(theta)
-    y_m = TRACK_RADIUS_B_M * math.sin(theta)
+#: Pe ce distanță în față se uită pilotul după viraje, în metri.
+#:
+#: La 30 m/s, șaptezeci de metri înseamnă puțin peste două secunde - cam cât
+#: durează frânarea de la viteza maximă la cea de șicană, cu decelerarea unei
+#: mașini solare.
+LOOKAHEAD_M = 70.0
 
-    lat = TRACK_CENTER_LAT + y_m / METERS_PER_DEG_LAT
-    meters_per_deg_lon = METERS_PER_DEG_LAT * math.cos(math.radians(TRACK_CENTER_LAT))
-    lon = TRACK_CENTER_LON + x_m / meters_per_deg_lon
-    return lat, lon
+#: Pasul de eșantionare al ferestrei. Zece metri prinde orice viraj de circuit;
+#: mai fin ar însemna mai multe evaluări de curbură la fiecare cadru, degeaba.
+LOOKAHEAD_STEP_M = 10
 
 
-def track_elevation(theta: float) -> float:
-    """Altitudinea traseului în punctul unghiular dat, în metri.
+def arc_speed(s_m: float) -> float:
+    """Viteza pe care o permite traseul la distanța dată, în m/s.
 
-    O singură creștere pe tur, netedă: pilotul urcă pe jumătate de buclă și
-    coboară pe cealaltă. Panta maximă rezultată este sub 3 %, adică exact
-    domeniul în care corecția de pantă din dashboard contează fără să domine.
+    Limita este accelerația laterală: într-un viraj de rază ``R`` nu se poate
+    merge mai repede de ``sqrt(a_lat * R)`` fără să plece mașina din traseu. Pe
+    geometria reală a circuitului asta produce singură profilul de viteză -
+    șicanele Kleine Chicane încetinesc mașina, linia dreaptă principală o lasă
+    la viteza maximă - fără niciun profil scris de mână.
+
+    Limita se ia pe cea mai strânsă curbă din fereastra imediat următoare, nu
+    pe cea din punctul curent: un pilot frânează *intrând* în viraj, nu când
+    este deja în el. Fără anticipare, mașina ar ajunge în șicană cu viteza
+    liniei drepte și ar încetini brusc acolo, iar puterea raportată ar avea un
+    vârf de frânare care nu există în realitate.
     """
-    return TRACK_BASE_ELEVATION_M + TRACK_ELEVATION_AMPLITUDE_M * math.sin(theta)
-
-
-def track_grade(theta: float, arc_per_theta: float) -> float:
-    """Panta locală ca fracțiune: derivata altitudinii față de arcul parcurs."""
-    return TRACK_ELEVATION_AMPLITUDE_M * math.cos(theta) / max(arc_per_theta, 1.0)
-
-
-def arc_per_theta(theta: float) -> float:
-    """Câți metri de traseu corespund unui radian de parametru, în punctul dat.
-
-    Este ``|dP/dθ|`` pentru elipsa parametrizată ``(a·cos θ, b·sin θ)``. Nu se
-    confundă cu raza de curbură: pe o elipsă cele două diferă cu până la 80 %,
-    iar folosirea razei de curbură pentru avansul unghiular ar face poziția GPS
-    să se deplaseze cu altă viteză decât cea raportată de mașină - exact tipul
-    de nepotrivire pe care panoul „Verificarea mapării poziției" îl semnalează.
-    """
-    a, b = TRACK_RADIUS_A_M, TRACK_RADIUS_B_M
-    return max(math.sqrt((a * math.sin(theta)) ** 2 + (b * math.cos(theta)) ** 2), 1.0)
-
-
-def curvature_radius(theta: float) -> float:
-    """Raza de curbură a elipsei în punctul dat - dictează viteza maximă în viraj."""
-    a, b = TRACK_RADIUS_A_M, TRACK_RADIUS_B_M
-    numerator = (a**2 * math.sin(theta) ** 2 + b**2 * math.cos(theta) ** 2) ** 1.5
-    return max(numerator / (a * b), 1.0)
-
-
-def arc_speed(theta: float) -> float:
-    """Viteza cerută de traseu în punctul curent, limitată de accelerația laterală."""
-    return min(math.sqrt(MAX_LATERAL_ACCEL * curvature_radius(theta)), MAX_SPEED_MS)
+    limit = MAX_SPEED_MS
+    for step_m in range(0, int(LOOKAHEAD_M) + 1, LOOKAHEAD_STEP_M):
+        radius = curvature_radius_at(s_m + step_m)
+        limit = min(limit, math.sqrt(MAX_LATERAL_ACCEL * radius))
+    return limit
 
 
 def solar_power_w(state: CarState, rng: random.Random) -> float:
@@ -164,7 +156,7 @@ def solar_power_w(state: CarState, rng: random.Random) -> float:
 def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     """Avansează modelul cu ``dt`` secunde și întoarce semnalele de telemetrie."""
     # --- dinamică longitudinală ---
-    target = arc_speed(state.theta)
+    target = arc_speed(state.s_m)
     if "soc_drain" in state.faults:
         target = min(target * 1.15, MAX_SPEED_MS)
 
@@ -172,22 +164,24 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     accel = max(-MAX_BRAKE_MS2, min(MAX_ACCEL_MS2, delta_v / max(dt, 0.05)))
     state.speed_ms = max(0.0, state.speed_ms + accel * dt)
 
-    # Avansul unghiular se calculează din lungimea de arc, nu din raza de
-    # curbură: altfel poziția GPS ar înainta cu altă viteză decât cea raportată.
-    arc = arc_per_theta(state.theta)
-    delta_theta = state.speed_ms * dt / arc
-    state.theta = (state.theta + delta_theta) % (2 * math.pi)
-    if state.theta < delta_theta:
+    # Pe linia mediană, avansul *este* distanța parcursă. Parametrizarea
+    # unghiulară de dinainte cerea o corecție aici, ca poziția GPS să nu
+    # înainteze cu altă viteză decât cea raportată; pe lungime de arc problema
+    # nu mai are cum să apară.
+    advance = state.speed_ms * dt
+    state.s_m += advance
+    if state.s_m >= TRACK_LENGTH_M:
+        state.s_m -= TRACK_LENGTH_M
         state.lap += 1
 
-    state.distance_m += state.speed_ms * dt
+    state.distance_m += advance
 
     # --- putere ---
     # Panta intră în bilanț: fără ea, altitudinea raportată ar contrazice
     # puterea raportată, iar verificarea de coerență din dashboard ar semnala pe
     # bună dreptate o nepotrivire.
-    grade = track_grade(state.theta, arc)
-    state.elevation_m = track_elevation(state.theta)
+    grade = grade_at(state.s_m)
+    state.elevation_m = elevation_at(state.s_m)
 
     rolling = ROLLING_RESISTANCE * MASS_KG * GRAVITY
     drag = 0.5 * AIR_DENSITY * DRAG_AREA * state.speed_ms**2
@@ -236,7 +230,7 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     battery_delta = 2.5 + abs(current_a) * 0.06 + (7 if overheat else 0)
 
     # --- GPS ---
-    lat, lon = track_point(state.theta)
+    lat, lon = point_at(state.s_m)
     gps_glitch = "gps_glitch" in state.faults
     hdop = (4.8 if gps_glitch else 0.8) + rng.uniform(0, 0.4)
     satellites = float(rng.randint(4, 6) if gps_glitch else rng.randint(9, 14))
@@ -245,16 +239,8 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
     vdop = hdop * 1.6 + rng.uniform(0, 0.2)
     # Altitudinea raportată nu este cea a traseului: are zgomotul receptorului.
     altitude = state.elevation_m + rng.uniform(-0.6, 0.6) * (4.0 if gps_glitch else 1.0)
-    # Tangenta la elipsă dă direcția de deplasare; 0° = nord.
-    heading = (
-        math.degrees(
-            math.atan2(
-                TRACK_RADIUS_A_M * -math.sin(state.theta),
-                TRACK_RADIUS_B_M * math.cos(state.theta),
-            )
-        )
-        + 360.0
-    ) % 360.0
+    # Direcția o dă tangenta la linia mediană în punctul curent; 0° = nord.
+    heading = heading_at(state.s_m)
     gps_speed_kph = state.speed_ms * 3.6 * (1.0 + rng.uniform(-0.01, 0.01))
     fix_quality = 0.0 if (gps_glitch and satellites < 5) else 1.0
 

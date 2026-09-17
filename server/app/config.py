@@ -29,6 +29,25 @@ class Settings(BaseSettings):
     operator_token: str = ""
     viewer_token: str = ""
 
+    # --- Vreme și condiții meteo ---------------------------------------
+    #
+    # Cheia stă AICI, pe server, niciodată în bundle-ul frontendului: orice
+    # variabilă `VITE_*` ajunge în textul livrat browserului. Gol = secțiunea
+    # meteo raportează cinstit „indisponibil" în loc să afișeze zerouri.
+    weather_api_key: str = ""
+    weather_base_url: str = "https://weather.googleapis.com/v1"
+    weather_language: str = "ro"
+    # Coordonatele circuitului, folosite cât timp GPS-ul nu are fix.
+    weather_default_lat: float | None = None
+    weather_default_lon: float | None = None
+    # Cât timp o observație rămâne bună. Vremea nu se schimbă în zece minute,
+    # iar fiecare apel este facturat de furnizor.
+    weather_ttl_s: float = 600.0
+    weather_timeout_s: float = 8.0
+    # Câte ore de prognoză cerem. Zero dezactivează prognoza, păstrând
+    # observația curentă.
+    weather_forecast_hours: int = 12
+
     # Originile permise pentru browser.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 

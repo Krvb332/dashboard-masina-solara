@@ -8,6 +8,7 @@ import { SessionsPage } from '../features/sessions/SessionsPage'
 import { StatisticsPage } from '../features/statistics/StatisticsPage'
 import { SystemPage } from '../features/system/SystemPage'
 import { TrackPage } from '../features/track/TrackPage'
+import { WeatherPage } from '../features/weather/WeatherPage'
 
 /**
  * Toate paginile trăiesc sub același shell, ca WebSocketul să rămână deschis la
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { path: 'statistici', element: <StatisticsPage /> },
       { path: 'energie', element: <EnergyPage /> },
       { path: 'traseu', element: <TrackPage /> },
+      { path: 'vreme', element: <WeatherPage /> },
       { path: 'piloti', element: <DriversPage /> },
       { path: 'sistem', element: <SystemPage /> },
       { path: 'sesiuni', element: <SessionsPage /> },

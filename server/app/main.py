@@ -12,8 +12,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import rest, ws
+from .api import rest, weather, ws
 from .config import settings
+from .core.weather import weather_service
 from .ingest import http as http_ingest
 from .ingest.mqtt import mqtt_ingest_loop
 from .runtime import runtime
@@ -43,6 +44,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(asyncio.CancelledError):
             await mqtt_task
         await runtime.stop()
+        await weather_service.aclose()
 
 
 app = FastAPI(
@@ -60,6 +62,7 @@ app.add_middleware(
 )
 
 app.include_router(rest.router)
+app.include_router(weather.router)
 app.include_router(http_ingest.router)
 app.include_router(ws.router)
 
