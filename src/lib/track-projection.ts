@@ -171,3 +171,76 @@ export function mixColor(
   )
   return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`
 }
+
+/**
+ * Cadrul fix al hărții, legat de circuit în loc de datele primite.
+ *
+ * `projectTrack` scalează după dreptunghiul care încadrează punctele. Este
+ * potrivit când nu se știe pe ce traseu se rulează — dar când se știe, este
+ * activ dăunător: fereastra se schimbă la fiecare cadru, pe măsură ce sosesc
+ * puncte noi. Urma pare să se miște când de fapt se redesenează la altă scară,
+ * iar bara de scară sare între valori. Pe o mașină oprită, fereastra ajunge să
+ * încadreze exact dispersia receptorului, iar câțiva metri de zgomot umplu toată
+ * pânza — vezi `MIN_SPAN_M`, pragul pus tocmai ca să limiteze dauna.
+ *
+ * Cu circuitul cunoscut, fereastra se calculează o singură dată, din geometria
+ * lui. Nimic din ce sosește nu o mai poate schimba: același loc de pe asfalt
+ * cade mereu în același pixel, de la un cadru la altul și de la o sesiune la
+ * alta. Pragul minim de întindere nu mai are ce apăra și nu se mai aplică.
+ */
+export type MapFrame = {
+  width: number
+  height: number
+  /** Câți metri reprezintă un pixel. Constant, prin construcție. */
+  metersPerPixel: number
+  project: (lat: number, lon: number) => { x: number; y: number }
+}
+
+export function referenceFrame(
+  reference: {
+    bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number }
+    origin: { lat: number; lon: number }
+    metersPerDegLat: number
+    metersPerDegLon: number
+  },
+  width: number,
+  height: number,
+  padding = 18,
+): MapFrame {
+  const { bounds } = reference
+
+  const toLocalX = (lon: number) =>
+    (lon - reference.origin.lon) * reference.metersPerDegLon
+  const toLocalY = (lat: number) =>
+    (lat - reference.origin.lat) * reference.metersPerDegLat
+
+  const minX = toLocalX(bounds.minLon)
+  const maxX = toLocalX(bounds.maxLon)
+  const minY = toLocalY(bounds.minLat)
+  const maxY = toLocalY(bounds.maxLat)
+
+  const spanX = Math.max(maxX - minX, 1)
+  const spanY = Math.max(maxY - minY, 1)
+
+  // Aceeași scară pe ambele axe, altfel circuitul ar apărea turtit.
+  const scale = Math.min(
+    (width - padding * 2) / spanX,
+    (height - padding * 2) / spanY,
+  )
+
+  // Centrat pe suprafața disponibilă, cu tot cu marginea rămasă pe axa care
+  // nu a dictat scara.
+  const offsetX = (width - spanX * scale) / 2
+  const offsetY = (height - spanY * scale) / 2
+
+  return {
+    width,
+    height,
+    metersPerPixel: scale > 0 ? 1 / scale : Number.NaN,
+    project: (lat: number, lon: number) => ({
+      x: offsetX + (toLocalX(lon) - minX) * scale,
+      // Latitudinea crește spre nord, iar y-ul canvasului crește în jos.
+      y: height - offsetY - (toLocalY(lat) - minY) * scale,
+    }),
+  }
+}

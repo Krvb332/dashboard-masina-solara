@@ -6,7 +6,14 @@ import math
 import random
 
 from app.signals import BY_KEY
-from simulator.simulate import CarState, arc_speed, step, track_point
+from simulator.simulate import CarState, arc_speed, step
+from simulator.track_zolder import (
+    OFFICIAL_LENGTH_M,
+    TRACK_LENGTH_M,
+    curvature_radius_at,
+    point_at,
+    sector_at,
+)
 
 
 def test_toate_semnalele_sunt_in_catalog() -> None:
@@ -42,19 +49,51 @@ def test_energia_solara_creste_in_timpul_zilei() -> None:
 
 
 def test_traseul_este_o_bucla_inchisa() -> None:
-    start = track_point(0.0)
-    end = track_point(2 * 3.141592653589793)
+    start = point_at(0.0)
+    end = point_at(TRACK_LENGTH_M)
 
     assert abs(start[0] - end[0]) < 1e-9
     assert abs(start[1] - end[1]) < 1e-9
 
 
-def test_viteza_este_limitata_in_viraje() -> None:
-    """Capătul axei mari are curbură mai strânsă, deci viteză permisă mai mică."""
-    viteza_in_viraj = arc_speed(0.0)
-    viteza_pe_linie_dreapta = arc_speed(3.141592653589793 / 2)
+def test_lungimea_masurata_corespunde_circuitului_real() -> None:
+    """Geometria chiar este Zolder, nu o buclă de aceeași formă la altă scară.
 
-    assert viteza_in_viraj < viteza_pe_linie_dreapta
+    O linie mediană desenată aproximativ ar trece de testul de buclă închisă și
+    ar arăta corect pe hartă; ce nu ar mai corespunde este *lungimea*, iar din
+    ea se calculează distanța pe tur și consumul pe kilometru.
+    """
+    abatere = abs(TRACK_LENGTH_M - OFFICIAL_LENGTH_M) / OFFICIAL_LENGTH_M
+    assert abatere < 0.01, (
+        f"linia mediană are {TRACK_LENGTH_M:.1f} m, "
+        f"circuitul oficial {OFFICIAL_LENGTH_M:.0f} m"
+    )
+
+
+def _pozitii_din_sectorul(nume: str) -> list[float]:
+    """Distanțele pe traseu care cad în sectorul cu numele dat.
+
+    Sectorul se caută după nume, nu se scrie ca număr de metri: o corecție
+    adusă geometriei ar muta metrii, iar testul ar începe să măsoare altă
+    bucată de circuit fără ca nimic să pice.
+    """
+    pozitii = [
+        s
+        for s in range(0, int(TRACK_LENGTH_M))
+        if sector_at(float(s))[0] == nume
+    ]
+    assert pozitii, f"sectorul „{nume}” nu există în geometrie"
+    return [float(s) for s in pozitii]
+
+
+def test_viteza_este_limitata_in_viraje() -> None:
+    """Șicana cere viteză mai mică decât linia dreaptă principală."""
+    viteza_in_sicana = min(arc_speed(s) for s in _pozitii_din_sectorul("Kleine Chicane"))
+    viteza_pe_linie_dreapta = max(
+        arc_speed(s) for s in _pozitii_din_sectorul("Linia dreaptă principală")
+    )
+
+    assert viteza_in_sicana < viteza_pe_linie_dreapta
 
 
 def test_numarul_de_tururi_creste() -> None:
@@ -210,13 +249,14 @@ def test_traseul_gps_inainteaza_cu_viteza_raportata() -> None:
     assert max(abateri) < 25.0, f"abatere maximă de {max(abateri):.1f} %"
 
 
-def test_arcul_pe_radian_difera_de_raza_de_curbura() -> None:
+def test_curbura_chiar_variaza_de_a_lungul_circuitului() -> None:
     """Controlul care explică de ce testul de mai sus are rost.
 
-    Dacă cele două ar fi egale, confuzia dintre ele n-ar avea consecințe și
-    verificarea n-ar demonstra nimic.
+    Dacă traseul ar avea curbură aproape constantă, limita de viteză ar fi
+    aceeași peste tot, iar comparația dintre șicană și linia dreaptă n-ar
+    demonstra nimic despre geometrie.
     """
-    from simulator.simulate import arc_per_theta, curvature_radius
+    raze = [curvature_radius_at(s) for s in range(0, int(TRACK_LENGTH_M), 25)]
 
-    theta = math.pi / 2
-    assert abs(arc_per_theta(theta) - curvature_radius(theta)) > 100.0
+    assert min(raze) < 100.0, f"cea mai strânsă curbă are raza {min(raze):.0f} m"
+    assert max(raze) > 1000.0, f"cea mai lină porțiune are raza {max(raze):.0f} m"

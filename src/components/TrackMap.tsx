@@ -1,24 +1,34 @@
 import { useEffect, useRef } from 'react'
 import { anchorStationary } from '../lib/gps'
 import { collectFixes } from '../lib/gps-buffer'
+import { matchRun, type MatchedFix } from '../lib/map-matching'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
 import {
-  metersPerPixel,
   mixColor,
   niceStep,
-  projectTrack,
-  type Position,
-  type Projected,
+  referenceFrame,
+  type MapFrame,
 } from '../lib/track-projection'
+import { trackReference } from '../lib/track-reference'
 
 /**
- * Harta traseului, desenată pe canvas din coordonatele GPS primite.
+ * Harta traseului: circuitul desenat din referință, mașina proiectată pe el.
  *
  * Deliberat fără tile-uri externe: documentul de arhitectură cere ca sistemul
  * să funcționeze complet fără internet, iar în pitlane o hartă cu tile-uri
- * remote ar afișa pătrate gri exact când e nevoie de ea. Traseul se
- * auto-scalează după punctele primite, deci funcționează pe orice circuit fără
- * configurare.
+ * remote ar afișa pătrate gri exact când e nevoie de ea.
+ *
+ * **Ce s-a schimbat față de harta auto-scalată.** Înainte, forma desenată era
+ * chiar urma GPS, iar fereastra se potrivea după ea. Două consecințe, amândouă
+ * neplăcute: urma ieșea de pe asfalt cu tot zgomotul receptorului, iar scara se
+ * schimba la fiecare cadru, deci traseul părea că respiră. Acum circuitul este
+ * cunoscut: se desenează el, o dată, într-un cadru fix; poziția mașinii se
+ * proiectează pe el. Același loc de pe asfalt cade mereu în același pixel.
+ *
+ * Urma brută rămâne desenată, estompat, sub cea proiectată. Nu este ornament:
+ * este singurul loc din care operatorul poate vedea cât de mult corectează
+ * maparea. O hartă care arată doar poziția lipită pe traseu ar arăta la fel de
+ * curat și cu un receptor defect.
  */
 
 const REDRAW_INTERVAL_MS = 100
@@ -30,6 +40,11 @@ const COLD = [96, 165, 250] as const // albastru: viteză mică
 const HOT = [251, 191, 36] as const // chihlimbar: viteză mare
 const LOW = [52, 211, 153] as const // verde: punctul cel mai de jos
 const HIGH = [244, 114, 182] as const // roz: punctul cel mai de sus
+
+/** Culoarea asfaltului sub urmă. */
+const TRACK_LINE = 'rgba(113, 113, 122, 0.55)'
+/** Urma brută, înainte de proiecție. */
+const RAW_LINE = 'rgba(248, 113, 113, 0.35)'
 
 /** După ce mărime se colorează urma. */
 export type TrackColorBy = 'speed' | 'elevation'
@@ -43,16 +58,21 @@ type TrackMapProps = {
    * traseu perfect plan.
    */
   colorBy?: TrackColorBy
+  /** Arată urma brută sub cea proiectată. */
+  showRaw?: boolean
 }
 
 export function TrackMap({
   height = 320,
   className,
   colorBy = 'speed',
+  showRaw = true,
 }: TrackMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const modeRef = useRef<TrackColorBy>(colorBy)
+  const rawRef = useRef<boolean>(showRaw)
   modeRef.current = colorBy
+  rawRef.current = showRaw
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -72,13 +92,16 @@ export function TrackMap({
         canvas as HTMLCanvasElement,
         context as CanvasRenderingContext2D,
         modeRef.current,
+        rawRef.current,
       )
     }
 
     const resizeObserver =
       typeof ResizeObserver === 'undefined'
         ? undefined
-        : new ResizeObserver(() => render(canvas, context, modeRef.current))
+        : new ResizeObserver(() =>
+            render(canvas, context, modeRef.current, rawRef.current),
+          )
     resizeObserver?.observe(canvas)
 
     return () => {
@@ -95,10 +118,11 @@ export function TrackMap({
       role="img"
       aria-label={
         colorBy === 'elevation'
-          ? 'Harta traseului, colorată după altitudine'
-          : 'Harta traseului cu poziția curentă a mașinii'
+          ? `${trackReference.name} — hartă colorată după altitudine`
+          : `${trackReference.name} — hartă cu poziția curentă a mașinii`
       }
       data-color-by={colorBy}
+      data-track={trackReference.name}
     />
   )
 }
@@ -107,6 +131,7 @@ function render(
   canvas: HTMLCanvasElement,
   context: CanvasRenderingContext2D,
   colorBy: TrackColorBy,
+  showRaw: boolean,
 ) {
   const ratio = window.devicePixelRatio || 1
   const width = canvas.clientWidth
@@ -121,56 +146,132 @@ function render(
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
   context.clearRect(0, 0, width, height)
 
-  // Fixurile trec prin ancorare înainte de desen, altfel dispersia normală a
-  // receptorului se desenează ca traseu: pe o mașină oprită ieșea o urmă de
-  // zeci de metri, auto-scalată până umplea pânza, cu bara de scară la 10 m.
-  // Ancorarea păstrează prima citire validă ca punct de pornire și raportează
-  // aceeași poziție cât timp vehiculul nu s-a mutat cu adevărat.
-  //
-  // Viteza se ia separat, pe timp exact: nu este o proprietate a fixului GNSS,
-  // ci semnalul de viteză al vehiculului, care colorează urma.
-  const speedByTime = new Map(
-    telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
-  )
-  const points: Position[] = anchorStationary(collectFixes(TRAIL_POINTS)).map(
-    (fix) => ({
-      lat: fix.latitude,
-      lon: fix.longitude,
-      speed: speedByTime.get(fix.timeMs) ?? 0,
-      // O poziție fără altitudine rămâne fără altitudine: `0` ar desena
-      // traseul la nivelul mării pe harta colorată după elevație.
-      ...(fix.altitude === undefined || fix.altitude === null
-        ? {}
-        : { elevation: fix.altitude }),
-    }),
-  )
+  // Cadrul se calculează din circuit, nu din date: se desenează la fel și
+  // înainte să sosească primul fix.
+  const frame = referenceFrame(trackReference, width, height, PADDING)
 
-  if (points.length < 2) {
-    drawPlaceholder(context, width, height)
+  drawCircuit(context, frame)
+  drawScale(context, frame, width, height)
+
+  // Ancorarea rămâne înaintea proiecției. Cele două rezolvă lucruri diferite:
+  // ancorarea ține pe loc o mașină oprită, proiecția o ține pe asfalt. Fără
+  // ancorare, o mașină staționară ar aluneca înainte și înapoi pe traseu, în
+  // ritmul zgomotului — mai puțin vizibil decât un ghem, dar la fel de fals.
+  const fixes = anchorStationary(collectFixes(TRAIL_POINTS))
+  if (fixes.length === 0) {
+    drawWaiting(context, width, height)
     return
   }
 
-  const projected = projectTrack(points, width, height, PADDING)
-  const hasElevation = projected.some((point) => point.elevation !== undefined)
-  drawTrail(context, projected, colorBy === 'elevation' && hasElevation)
-  drawStart(context, projected[0])
-  drawCurrent(context, projected[projected.length - 1])
-  drawScale(context, points, projected, width, height)
+  const run = matchRun(fixes)
+  if (run.fixes.length === 0) {
+    drawWaiting(context, width, height)
+    return
+  }
+
+  const speedByTime = new Map(
+    telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
+  )
+
+  if (showRaw) drawRawTrail(context, frame, run.fixes)
+  drawTrail(context, frame, run.fixes, speedByTime, colorBy)
+
+  const first = run.fixes[0]
+  const last = run.fixes[run.fixes.length - 1]
+  drawStart(context, frame, first)
+  drawCurrent(context, frame, last)
+
+  if (!last.match.onTrack) drawOffTrack(context, width)
 }
 
+/** Linia mediană a circuitului, desenată o dată, din referință. */
+function drawCircuit(context: CanvasRenderingContext2D, frame: MapFrame) {
+  const nodes = trackReference.nodes
+  if (nodes.length < 2) return
+
+  context.strokeStyle = TRACK_LINE
+  // Asfaltul are vreo doisprezece metri; desenat la scara hărții, dă o bandă
+  // pe care urma se vede deasupra, nu o linie subțire lângă ea.
+  context.lineWidth = Math.max(
+    3,
+    Math.min(14, 12 / frame.metersPerPixel),
+  )
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+
+  context.beginPath()
+  for (let index = 0; index < nodes.length; index += 1) {
+    const point = frame.project(nodes[index][0], nodes[index][1])
+    if (index === 0) context.moveTo(point.x, point.y)
+    else context.lineTo(point.x, point.y)
+  }
+  context.closePath()
+  context.stroke()
+
+  // Linia de start/sosire, perpendiculară pe traseu.
+  drawStartLine(context, frame)
+}
+
+function drawStartLine(context: CanvasRenderingContext2D, frame: MapFrame) {
+  const nodes = trackReference.nodes
+  const start = frame.project(nodes[0][0], nodes[0][1])
+  const next = frame.project(nodes[1][0], nodes[1][1])
+
+  const dx = next.x - start.x
+  const dy = next.y - start.y
+  const length = Math.hypot(dx, dy)
+  if (length < 0.001) return
+
+  // Normala la direcția de mers, scalată la lățimea desenată a asfaltului.
+  const half = Math.max(5, Math.min(12, 10 / frame.metersPerPixel))
+  const nx = (-dy / length) * half
+  const ny = (dx / length) * half
+
+  context.strokeStyle = 'rgba(244, 244, 245, 0.9)'
+  context.lineWidth = 2
+  context.beginPath()
+  context.moveTo(start.x - nx, start.y - ny)
+  context.lineTo(start.x + nx, start.y + ny)
+  context.stroke()
+}
+
+/** Urma brută, așa cum a venit de la receptor. */
+function drawRawTrail(
+  context: CanvasRenderingContext2D,
+  frame: MapFrame,
+  fixes: MatchedFix[],
+) {
+  context.strokeStyle = RAW_LINE
+  context.lineWidth = 1
+  context.beginPath()
+
+  for (let index = 0; index < fixes.length; index += 1) {
+    const point = frame.project(fixes[index].raw.lat, fixes[index].raw.lon)
+    if (index === 0) context.moveTo(point.x, point.y)
+    else context.lineTo(point.x, point.y)
+  }
+  context.stroke()
+}
+
+/** Urma proiectată, colorată după viteză sau altitudine. */
 function drawTrail(
   context: CanvasRenderingContext2D,
-  points: Projected[],
-  byElevation: boolean,
+  frame: MapFrame,
+  fixes: MatchedFix[],
+  speedByTime: Map<number, number>,
+  colorBy: TrackColorBy,
 ) {
-  const values = points.map((point) =>
-    byElevation ? (point.elevation ?? Number.NaN) : point.speed,
+  const byElevation = colorBy === 'elevation'
+  const values = fixes.map((fix) =>
+    byElevation
+      ? fix.match.elevationM
+      : (speedByTime.get(fix.timeMs) ?? Number.NaN),
   )
   const usable = values.filter((value) => !Number.isNaN(value))
   const min = usable.length > 0 ? Math.min(...usable) : 0
   const max = usable.length > 0 ? Math.max(...usable) : 1
-  // Un interval minim: pe un traseu plan, altfel fiecare metru de zgomot ar
-  // deveni un salt de culoare de la un capăt la celălalt al paletei.
+  // Un interval minim: pe o porțiune plană, altfel fiecare metru ar deveni un
+  // salt de culoare de la un capăt la celălalt al paletei.
   const span = Math.max(max - min, byElevation ? 5 : 1)
 
   const [cold, hot] = byElevation ? [LOW, HIGH] : [COLD, HOT]
@@ -179,24 +280,35 @@ function drawTrail(
   context.lineCap = 'round'
   context.lineJoin = 'round'
 
-  for (let index = 1; index < points.length; index += 1) {
-    const from = points[index - 1]
-    const to = points[index]
-    const value = values[index]
+  for (let index = 1; index < fixes.length; index += 1) {
+    const from = fixes[index - 1]
+    const to = fixes[index]
 
-    // Fără valoare pentru segmentul curent, desenăm neutru — nu inventăm o
-    // poziție în paletă pentru un punct despre care nu știm nimic.
+    // Segmentele care leagă o poziție de pe traseu de una din afara lui nu
+    // descriu un drum: se sare peste ele, ca să nu apară o linie dreaptă prin
+    // mijlocul circuitului.
+    if (!from.match.onTrack || !to.match.onTrack) continue
+
+    const value = values[index]
     context.strokeStyle = Number.isNaN(value)
-      ? 'rgba(113, 113, 122, 0.8)'
+      ? 'rgba(161, 161, 170, 0.8)'
       : mixColor(cold, hot, (value - min) / span)
+
+    const a = frame.project(from.match.lat, from.match.lon)
+    const b = frame.project(to.match.lat, to.match.lon)
     context.beginPath()
-    context.moveTo(from.x, from.y)
-    context.lineTo(to.x, to.y)
+    context.moveTo(a.x, a.y)
+    context.lineTo(b.x, b.y)
     context.stroke()
   }
 }
 
-function drawStart(context: CanvasRenderingContext2D, point: Projected) {
+function drawStart(
+  context: CanvasRenderingContext2D,
+  frame: MapFrame,
+  fix: MatchedFix,
+) {
+  const point = frame.project(fix.match.lat, fix.match.lon)
   context.strokeStyle = 'rgba(244, 244, 245, 0.75)'
   context.lineWidth = 2
   context.beginPath()
@@ -204,35 +316,46 @@ function drawStart(context: CanvasRenderingContext2D, point: Projected) {
   context.stroke()
 }
 
-function drawCurrent(context: CanvasRenderingContext2D, point: Projected) {
-  context.fillStyle = 'rgba(16, 185, 129, 0.25)'
+function drawCurrent(
+  context: CanvasRenderingContext2D,
+  frame: MapFrame,
+  fix: MatchedFix,
+) {
+  // Mașina în afara coridorului se desenează unde chiar este raportată, nu pe
+  // asfalt: altfel harta ar ascunde tocmai anomalia.
+  const position = fix.match.onTrack
+    ? frame.project(fix.match.lat, fix.match.lon)
+    : frame.project(fix.raw.lat, fix.raw.lon)
+
+  const color = fix.match.onTrack ? '#10b981' : '#f87171'
+  const halo = fix.match.onTrack
+    ? 'rgba(16, 185, 129, 0.25)'
+    : 'rgba(248, 113, 113, 0.25)'
+
+  context.fillStyle = halo
   context.beginPath()
-  context.arc(point.x, point.y, 10, 0, Math.PI * 2)
+  context.arc(position.x, position.y, 10, 0, Math.PI * 2)
   context.fill()
 
-  context.fillStyle = '#10b981'
+  context.fillStyle = color
   context.beginPath()
-  context.arc(point.x, point.y, 5, 0, Math.PI * 2)
+  context.arc(position.x, position.y, 5, 0, Math.PI * 2)
   context.fill()
 }
 
-/** Bară de scară, ca distanțele de pe hartă să fie interpretabile. */
+/** Bară de scară. Scara este constantă, deci și bara. */
 function drawScale(
   context: CanvasRenderingContext2D,
-  points: Position[],
-  projected: Projected[],
+  frame: MapFrame,
   width: number,
   height: number,
 ) {
-  const perPixel = metersPerPixel(
-    points[0],
-    points[points.length - 1],
-    projected,
-  )
-  if (!Number.isFinite(perPixel) || perPixel <= 0) return
+  if (!Number.isFinite(frame.metersPerPixel) || frame.metersPerPixel <= 0) {
+    return
+  }
 
-  const step = niceStep(Math.min(120, width / 3) * perPixel)
-  const pixels = step / perPixel
+  const step = niceStep(Math.min(120, width / 3) * frame.metersPerPixel)
+  const pixels = step / frame.metersPerPixel
   const y = height - 14
   const x = 14
 
@@ -256,14 +379,24 @@ function drawScale(
   )
 }
 
-function drawPlaceholder(
+function drawWaiting(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
 ) {
+  // Circuitul este deja desenat: mesajul spune doar că mașina lipsește de pe
+  // el, nu că harta nu are ce arăta.
   context.fillStyle = 'rgba(113, 113, 122, 0.9)'
   context.font = '13px "IBM Plex Sans Variable", sans-serif'
   context.textAlign = 'center'
   context.fillText('Se așteaptă poziția GPS…', width / 2, height / 2)
+  context.textAlign = 'start'
+}
+
+function drawOffTrack(context: CanvasRenderingContext2D, width: number) {
+  context.fillStyle = 'rgba(248, 113, 113, 0.95)'
+  context.font = '12px "IBM Plex Sans Variable", sans-serif'
+  context.textAlign = 'center'
+  context.fillText('Poziție în afara circuitului', width / 2, 18)
   context.textAlign = 'start'
 }

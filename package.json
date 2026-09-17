@@ -18,10 +18,12 @@
     "verify:catalog": "node scripts/verify-catalog-additive.mjs",
     "verify:simulator": "node scripts/verify-simulator-coverage.mjs",
     "verify:plans": "node scripts/verify-plans.mjs",
-    "verify": "npm run verify:signals && npm run verify:catalog && npm run verify:simulator && npm run verify:plans",
+    "verify:track": "node scripts/verify-track-reference.mjs --geometry && node scripts/verify-track-reference.mjs --elevation && node scripts/verify-track-reference.mjs --sync",
+    "verify:track:sim": "node scripts/verify-track-reference.mjs --simulator",
+    "verify": "npm run verify:signals && npm run verify:catalog && npm run verify:simulator && npm run verify:plans && npm run verify:track",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run lint && npm run typecheck && npm run verify:signals && npm run verify:catalog && npm run test && npm run build"
+    "check": "npm run lint && npm run typecheck && npm run verify:signals && npm run verify:catalog && npm run verify:track && npm run test && npm run build"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

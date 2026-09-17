@@ -217,7 +217,7 @@ export function AppShell() {
                 {mode === 'replay' ? 'Sesiune înregistrată' : 'Sesiune live'}
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                {vehicleId ?? 'Mașina solară'}
+                {vehicleId ?? 'Sol Invictus II'}
               </h1>
             </div>
           </div>

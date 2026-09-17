@@ -6,7 +6,9 @@ import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap, type TrackColorBy } from '../../components/TrackMap'
+import { TrackPositionPanel } from '../../components/TrackPositionPanel'
 import { useSignalsByGroup } from '../../hooks/useSignal'
+import { trackReference } from '../../lib/track-reference'
 
 /** Zona 4 din documentul de arhitectură: harta și poziția pe traseu. */
 export function TrackPage() {
@@ -27,15 +29,18 @@ export function TrackPage() {
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]">
         <Panel
-          title="Traseu"
-          subtitle="Desenat local din coordonatele GPS, fără hărți externe"
+          title={trackReference.name}
+          subtitle="Circuitul desenat din referință, poziția proiectată pe el"
           action={<ColorByToggle value={colorBy} onChange={setColorBy} />}
         >
           <TrackMap height={420} colorBy={colorBy} />
-          <p className="mt-3 text-xs text-zinc-500">
+          <p className="mt-3 text-xs leading-5 text-zinc-500">
             {colorBy === 'speed'
               ? 'Albastru: viteză mică. Chihlimbar: viteză mare.'
-              : 'Verde: punctul cel mai de jos. Roz: cel mai de sus. Segmentele fără altitudine rămân gri — nu sunt desenate la nivelul solului.'}
+              : 'Verde: punctul cel mai de jos. Roz: cel mai de sus.'}{' '}
+            Banda gri este asfaltul, iar linia roșie estompată este poziția
+            brută, înainte de proiecție — distanța dintre ele este cât corectează
+            maparea. Bara albă marchează linia de start/sosire.
           </p>
         </Panel>
 
@@ -67,6 +72,15 @@ export function TrackPage() {
           subtitle="Latitudine, longitudine și altitudine, confruntate cu restul telemetriei"
         >
           <GpsMappingPanel />
+        </Panel>
+      </section>
+
+      <section className="mt-4">
+        <Panel
+          title="Poziția pe circuit"
+          subtitle="Sector, metru al turului și abaterea față de mijlocul asfaltului"
+        >
+          <TrackPositionPanel />
         </Panel>
       </section>
 
