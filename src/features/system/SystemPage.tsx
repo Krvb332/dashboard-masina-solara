@@ -12,6 +12,7 @@ import {
   formatDateTime,
   formatDuration,
   formatNumber,
+  formatSigned,
   NO_VALUE,
 } from '../../lib/format'
 import type { QualityState } from '../../schemas/telemetry'
@@ -129,14 +130,19 @@ function StreamHealth() {
   const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
 
   const rows: [string, string][] = [
-    ['Stare conexiune', connection],
+    ['Stare conexiune', connectionLabels[connection]],
     ['Mesaje primite', formatNumber(stats.received, 0)],
     ['Mesaje pierdute', formatNumber(stats.dropped, 0)],
     ['Duplicate', formatNumber(stats.duplicates, 0)],
     ['Ordine incorectă', formatNumber(stats.out_of_order, 0)],
     ['Respinse la validare (server)', formatNumber(stats.invalid, 0)],
     ['Cadre invalide (browser)', formatNumber(invalidFrames, 0)],
-    ['Frecvență efectivă', `${formatNumber(stats.effective_hz, 1)} Hz`],
+    [
+      'Ritm cadre',
+      stats.effective_hz > 0
+        ? `${formatNumber(stats.effective_hz, 1)} Hz`
+        : NO_VALUE,
+    ],
     [
       'Ultima secvență',
       stats.last_sequence === null
@@ -144,10 +150,13 @@ function StreamHealth() {
         : formatNumber(stats.last_sequence, 0),
     ],
     [
-      'Decalaj ceas mașină → server',
-      formatAge(Math.abs(stats.clock_offset_ms)),
+      'Decalaj ceas mașină față de server',
+      `${formatSigned(stats.clock_offset_ms, 0)} ms`,
     ],
-    ['Decalaj ceas browser → server', formatAge(Math.abs(clockOffset))],
+    [
+      'Decalaj ceas browser față de server',
+      `${formatSigned(clockOffset, 0)} ms`,
+    ],
   ]
 
   return (
@@ -226,6 +235,14 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
+/** Aceleași etichete ca în insigna de conexiune din antet. */
+const connectionLabels: Record<string, string> = {
+  connecting: 'se conectează',
+  connected: 'conectată',
+  reconnecting: 'reconectare',
+  disconnected: 'deconectată',
+}
+
 const qualityLabels: Record<QualityState, string> = {
   valid: 'valid',
   stale: 'învechit',
@@ -241,6 +258,17 @@ const qualityStyles: Record<QualityState, string> = {
 }
 
 /** Starea fiecărui semnal din catalog - punctul 8 din documentul de arhitectură. */
+/** Etichetele grupurilor, aceleași ca `GROUP_LABELS` din catalogul serverului. */
+const groupLabels: Record<string, string> = {
+  status: 'Stare generală',
+  energy: 'Energie și baterie',
+  thermal: 'Temperaturi',
+  motor: 'Motor',
+  gps: 'Poziție',
+  chassis: 'Șasiu și anvelope',
+  board: 'Placă de achiziție',
+}
+
 function QualityTable() {
   const catalog = useTelemetryStore((state) => state.catalog)
   const quality = useTelemetryStore((state) => state.quality)
@@ -275,7 +303,9 @@ function QualityTable() {
                     {signal.key}
                   </span>
                 </td>
-                <td className="py-2 text-zinc-500">{signal.group}</td>
+                <td className="py-2 text-zinc-500">
+                  {groupLabels[signal.group] ?? signal.group}
+                </td>
                 <td className="py-2">
                   <span
                     className={clsx(

@@ -41,31 +41,44 @@ export function StatisticsPage() {
       </section>
 
       <section
-        className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
         aria-label="Indicatori de decizie"
       >
         <StatTile
-          label="Consum acum"
+          label="Consum din pachet (2 min)"
           value={snapshot.recentWhPerKm}
           unit="Wh/km"
           decimals={1}
-          formula="ΔE / Δd, fereastră 2 min"
+          formula="ΔE_pachet / Δd, fereastră 2 min"
+          hint="Energia scoasă din pachet pe kilometru, după aportul solar."
           tone={toneAbove(snapshot.recentWhPerKm, 25, 40)}
         />
         <StatTile
-          label="Prag susținut de soare"
+          label="Aport solar pe km"
           value={sustainable}
           unit="Wh/km"
           decimals={1}
-          formula="P_solar / v"
-          hint="Peste acest consum, diferența iese din pachet."
+          formula="P_solar / v (v = media pe 2 min)"
+          hint="Partea din sarcină plătită de soare la viteza actuală. Sarcina totală = consum din pachet + aport."
+        />
+        <StatTile
+          label="Sarcină totală"
+          value={
+            snapshot.recentWhPerKm === null || sustainable === null
+              ? null
+              : snapshot.recentWhPerKm + sustainable
+          }
+          unit="Wh/km"
+          decimals={1}
+          formula="consum din pachet + aport solar"
+          hint="Cât cere mașina pe kilometru, indiferent cine plătește: pachetul sau soarele."
         />
         <StatTile
           label="Recuperare regenerativă"
           value={snapshot.regenW}
           unit="W"
           decimals={0}
-          formula="energie întoarsă în pachet"
+          formula="putere întoarsă în pachet"
           tone={
             snapshot.regenW !== null && snapshot.regenW > 0 ? 'good' : 'neutral'
           }
@@ -75,15 +88,15 @@ export function StatisticsPage() {
           value={snapshot.rangeKm}
           unit="km"
           decimals={1}
-          formula="E_rămasă / consum specific"
+          formula="E_rămasă / consum din pachet"
           tone={toneBelow(snapshot.rangeKm, 40, 15)}
         />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
         <Panel
-          title="Consum și recuperare"
-          subtitle="Cât scoate motorul din pachet și cât întoarce frâna regenerativă"
+          title="Pachet: putere și recuperare"
+          subtitle="Cât iese din pachet, cât întoarce frâna regenerativă și bilanțul net"
         >
           <TelemetryChart
             signalKeys={[
@@ -153,8 +166,8 @@ export function StatisticsPage() {
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Panel
-          title="Consum specific"
-          subtitle="Wh pe kilometru, pe fereastră glisantă"
+          title="Consum din pachet"
+          subtitle="Wh pe kilometru scoși din pachet, pe fereastră glisantă"
         >
           <TelemetryChart
             signalKeys={['calc_wh_per_km']}
@@ -167,8 +180,8 @@ export function StatisticsPage() {
         </Panel>
 
         <Panel
-          title="Cerut față de necesar"
-          subtitle="Puterea consumată față de rezistența la înaintare"
+          title="Pachet față de necesar"
+          subtitle="Puterea din pachet față de rezistența la înaintare"
         >
           <TelemetryChart
             signalKeys={['calc_consumption_w', 'calc_road_load_w']}
@@ -194,7 +207,7 @@ export function StatisticsPage() {
         </Panel>
 
         <Panel
-          title="Autonomie și bilanț energetic"
+          title="Autonomie și bilanț pachet"
           subtitle="Cum evoluează rezerva"
         >
           <TelemetryChart

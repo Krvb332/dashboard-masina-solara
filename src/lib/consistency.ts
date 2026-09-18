@@ -98,18 +98,14 @@ export function buildChecks(lookup: ValueLookup): ConsistencyCheck[] {
     {
       key: 'solar_power',
       label: 'Putere solară față de suma MPPT',
-      expected: sum(lookup, [
-        'mppt1_power_w',
-        'mppt2_power_w',
-        'mppt3_power_w',
-        'mppt4_power_w',
-      ]),
+      // Mașina are două convertoare; totalul solar trebuie să fie suma lor.
+      expected: sum(lookup, ['mppt1_power_w', 'mppt2_power_w']),
       actual: lookup('solar_power_w'),
       unit: 'W',
       decimals: 0,
       tolerancePct: 6,
       toleranceAbs: 25,
-      hint: 'Un controler MPPT lipsește din sumă sau raportează în alte unități.',
+      hint: 'Unul dintre cele două convertoare MPPT lipsește din sumă sau raportează în alte unități.',
     },
     {
       key: 'cell_delta',
@@ -152,26 +148,31 @@ export function buildChecks(lookup: ValueLookup): ConsistencyCheck[] {
     },
     {
       key: 'speed_source',
-      label: 'Viteză raportată față de viteză GNSS',
+      label: 'Viteză raportată (firmware) față de viteză GNSS',
+      // Rămâne „fără date" cât timp mașina nu are receptor GNSS; când există,
+      // este singura confruntare a vitezei cu o sursă independentă de roată.
       expected: lookup('gps_speed_kph'),
       actual: lookup('vehicle_speed_kph'),
       unit: 'km/h',
       decimals: 1,
       tolerancePct: 15,
       toleranceAbs: 3,
-      hint: 'Circumferința roții din firmware nu corespunde anvelopei, sau coordonatele nu sunt în grade zecimale.',
+      hint: 'Viteza din firmware (turație × circumferință) nu se potrivește cu cea a receptorului GNSS: circumferința configurată pe placă nu este a anvelopei, sau coordonatele nu sunt în grade zecimale.',
     },
     {
       key: 'wheel_speed',
-      label: 'Viteză raportată față de turație × circumferință roată',
-      // v = n · π · D · 60 / 1000, cu D = 0,548 m (vezi `speedKphFromRpm`).
+      label: 'Viteză raportată (firmware) față de turație × Ø 548 mm',
+      // Firmware-ul calculează `vehicle_speed_kph` din aceeași turație, cu
+      // circumferința configurată pe placă. Refăcând calculul aici cu
+      // D = 0,548 m (vezi `speedKphFromRpm`), verificarea compară de fapt cei
+      // doi factori rpm→km/h: al plăcii și al dashboardului.
       expected: speedKphFromRpm(lookup('motor_rpm')),
       actual: lookup('vehicle_speed_kph'),
       unit: 'km/h',
       decimals: 1,
       tolerancePct: 10,
       toleranceAbs: 3,
-      hint: 'Diametrul roții (548 mm) sau raportul de transmisie din formulă nu corespund mașinii, sau viteza GNSS este greșită.',
+      hint: 'Factorul rpm→km/h din firmware nu corespunde roții de 548 mm presupuse de dashboard (sau raportului de transmisie 1:1). Una dintre cele două circumferințe este greșită; distanța și consumul specific moștenesc eroarea.',
     },
   ]
 }

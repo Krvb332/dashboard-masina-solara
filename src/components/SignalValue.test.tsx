@@ -94,4 +94,40 @@ describe('SignalValue', () => {
 
     expect(screen.getByText('3,642 V')).toBeInTheDocument()
   })
+
+  it('afișează puterea de pachet pe scala comprimată, cu valoarea măsurată în tooltip', () => {
+    const packPower = makeSignal({
+      key: 'battery_power_w',
+      label: 'Putere baterie',
+      unit: 'W',
+      decimals: 1,
+    })
+    seedTelemetry([packPower], {
+      battery_power_w: makeQuality('valid', 5000),
+    })
+
+    render(<SignalValue signalKey="battery_power_w" />)
+
+    // 5 kW măsurați se afișează comprimat, sub plafonul de 4 kW.
+    const element = screen.getByText('3.938,3 W')
+    expect(element).toHaveAttribute('data-quality', 'valid')
+    expect(element.getAttribute('title')).toContain('5.000,0 W')
+  })
+
+  it('lasă neatinsă puterea de pachet sub pragul de compresie', () => {
+    const packPower = makeSignal({
+      key: 'battery_power_w',
+      label: 'Putere baterie',
+      unit: 'W',
+      decimals: 1,
+    })
+    seedTelemetry([packPower], {
+      battery_power_w: makeQuality('valid', 1800),
+    })
+
+    render(<SignalValue signalKey="battery_power_w" />)
+
+    const element = screen.getByText('1.800,0 W')
+    expect(element.getAttribute('title')).not.toContain('comprimată')
+  })
 })

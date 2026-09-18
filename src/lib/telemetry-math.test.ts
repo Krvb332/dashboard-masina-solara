@@ -163,8 +163,8 @@ describe('rezistențe la înaintare', () => {
     const expected =
       VEHICLE.rollingResistance * VEHICLE.massKg * GRAVITY_MS2 * speedMs
     expect(rollingResistanceW(speedMs)).toBeCloseTo(expected, 9)
-    // Verificare aritmetică independentă: 0,006 · 280 · 9,80665 · 10.
-    expect(rollingResistanceW(speedMs)).toBeCloseTo(164.75172, 4)
+    // Verificare aritmetică independentă: 0,006 · 200 · 9,80665 · 10.
+    expect(rollingResistanceW(speedMs)).toBeCloseTo(117.6798, 4)
   })
 
   it('rezistența aerodinamică este ½ · ρ · CdA · v³', () => {
@@ -203,13 +203,15 @@ describe('rezistențe la înaintare', () => {
     const optimal = economicSpeedKph() as number
     expect(optimal).toBeGreaterThan(0)
 
-    // Energia pe metru: Crr·m·g + ½ρCdA·v² + P_aux/v. Dacă viteza întoarsă este
-    // minimul, orice viteză vecină trebuie să coste mai mult.
+    // Energia pe metru scoasă din pachet: (Crr·m·g + ½ρCdA·v²)/η + P_aux/v —
+    // aceeași împărțire la randament ca în `roadLoadW`. Dacă viteza întoarsă
+    // este minimul, orice viteză vecină trebuie să coste mai mult.
     const energyPerMeter = (kph: number) => {
       const v = kph / 3.6
       return (
-        VEHICLE.rollingResistance * VEHICLE.massKg * GRAVITY_MS2 +
-        0.5 * AIR_DENSITY_KG_M3 * VEHICLE.dragArea * v * v +
+        (VEHICLE.rollingResistance * VEHICLE.massKg * GRAVITY_MS2 +
+          0.5 * AIR_DENSITY_KG_M3 * VEHICLE.dragArea * v * v) /
+          VEHICLE.drivetrainEfficiency +
         VEHICLE.auxiliaryLoadW / v
       )
     }

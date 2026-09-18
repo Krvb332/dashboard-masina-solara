@@ -74,6 +74,26 @@ function authHeaders(): Record<string, string> {
   return API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}
 }
 
+/**
+ * FastAPI răspunde la erori cu `{"detail": "..."}`. Textul din `detail` este
+ * ce vrem să vadă omul; JSON-ul brut în mesaj arată a defecțiune, nu a explicație.
+ */
+function errorDetail(body: string): string {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as { detail?: unknown }).detail === 'string'
+    ) {
+      return (parsed as { detail: string }).detail
+    }
+  } catch {
+    // corp care nu e JSON: îl arătăm așa cum e
+  }
+  return body
+}
+
 async function request<T>(
   path: string,
   schema: z.ZodType<T>,
@@ -85,9 +105,9 @@ async function request<T>(
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '')
+    const body = await response.text().catch(() => '')
     throw new ApiError(
-      detail || `Cererea către ${path} a eșuat.`,
+      errorDetail(body) || `Cererea către ${path} a eșuat.`,
       response.status,
     )
   }

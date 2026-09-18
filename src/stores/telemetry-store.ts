@@ -62,6 +62,8 @@ type TelemetryStore = {
 
   setConnection: (connection: ConnectionState) => void
   setCatalog: (signals: SignalDefinition[]) => void
+  /** Starea înregistrării, cunoscută din răspunsul REST înaintea următorului cadru WebSocket. */
+  setRecordingSession: (sessionId: string | null) => void
   applyFrame: (frame: TelemetryFrame) => void
   countInvalidFrame: () => void
   acknowledgeAlarm: (alarmId: string) => void
@@ -105,6 +107,8 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
       ),
     }),
 
+  setRecordingSession: (sessionId) => set({ recordingSessionId: sessionId }),
+
   applyFrame: (frame) =>
     set((state) => {
       const serverMs = new Date(frame.server_time).getTime()
@@ -122,7 +126,7 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
           : state.clientClockOffsetMs,
         recordingSessionId: frame.recording_session_id,
         lastFrameAt: Date.now(),
-        ...trackLaps(state, frame.latest),
+        ...trackLaps(state, frame.latest, frame.quality),
       }
     }),
 
@@ -160,15 +164,24 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
 function trackLaps(
   state: TelemetryStore,
   sample: Sample | null,
+  quality: Record<string, SignalQuality>,
 ): Partial<TelemetryStore> {
   if (!sample) return {}
 
-  const lap = sample.signals.lap_number
-  if (lap === undefined) return {}
+  // Aceeași poartă de calitate ca în acumulatorul de statistici: o valoare
+  // `stale` sau `sensor_error` nu are ce căuta în consumul pe tur.
+  const valid = (key: string): number | null => {
+    if (quality[key]?.state !== 'valid') return null
+    const value = sample.signals[key]
+    return value !== undefined && Number.isFinite(value) ? value : null
+  }
+
+  const lap = valid('lap_number')
+  if (lap === null) return {}
 
   const time = new Date(sample.server_received_at).getTime()
-  const energy = sample.signals.energy_consumed_wh ?? null
-  const distance = sample.signals.distance_km ?? null
+  const energy = valid('energy_consumed_wh')
+  const distance = valid('distance_km')
   const tracking = state.lapTracking
 
   const restart = {
@@ -179,7 +192,10 @@ function trackLaps(
   }
 
   if (tracking.lap === null) return { lapTracking: restart }
-  if (lap <= tracking.lap) return {}
+  // Numărătorul a scăzut: placa a repornit. Reluăm urmărirea de la turul nou,
+  // fără să închidem un tur fals și fără să așteptăm depășirea valorii vechi.
+  if (lap < tracking.lap) return { lapTracking: restart }
+  if (lap === tracking.lap) return {}
 
   const durationS =
     tracking.startedAt === null ? null : (time - tracking.startedAt) / 1000

@@ -101,7 +101,9 @@ describe('DashboardPage', () => {
     const cards = within(screen.getByLabelText('Indicatori principali'))
     expect(cards.getAllByText('—')).toHaveLength(2)
     expect(screen.getByText(/Ultima valoare acum/)).toBeInTheDocument()
-    expect(screen.getByText('Fără date de la mașină')).toBeInTheDocument()
+    expect(
+      screen.getByText('Semnalul nu a fost primit de la mașină'),
+    ).toBeInTheDocument()
   })
 
   it('include graficul, harta și statisticile plăcii', () => {
@@ -127,6 +129,28 @@ describe('DashboardPage', () => {
     // O sursă din două răspunde: BMS-ul tace, senzorii de temperatură nu.
     expect(screen.getByText('1/2')).toBeInTheDocument()
     expect(screen.getByText(/1 din 3 semnale proaspete/)).toBeInTheDocument()
+  })
+
+  it('deduce viteza din turație când placa nu trimite viteza', () => {
+    const withRpm = [
+      ...catalog,
+      makeSignal({
+        key: 'motor_rpm',
+        label: 'Turație motor',
+        unit: 'rpm',
+        group: 'motor',
+      }),
+    ]
+    seedTelemetry(withRpm, {
+      vehicle_speed_kph: makeQuality('unavailable', null),
+      motor_rpm: makeQuality('valid', 600),
+    })
+
+    renderPage()
+
+    // 600 rpm pe roata de 548 mm: 10 rot/s · 1,7216 m · 3,6 = 61,98 km/h.
+    expect(screen.getByText('62,0 km/h')).toBeInTheDocument()
+    expect(screen.getByText(/Din turație × Ø 548 mm/)).toBeInTheDocument()
   })
 
   it('nu inventează temperatura plăcii cât timp firmware-ul nu o trimite', () => {

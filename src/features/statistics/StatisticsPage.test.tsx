@@ -123,19 +123,19 @@ describe('cu flux activ', () => {
 
     // 5 Wh pe 0,125 km înseamnă 40 Wh/km.
     const specific = screen
-      .getAllByText('Consum specific (sesiune)')
+      .getAllByText('Consum din pachet (sesiune)')
       .map((node) => node.closest('[data-stat]'))
       .find(Boolean) as HTMLElement
 
     expect(within(specific).getByText('40,0')).toBeInTheDocument()
   })
 
-  it('afișează pragul susținut de aportul solar', () => {
+  it('afișează aportul solar pe kilometru', () => {
     renderPage()
 
-    // 900 W la 45 km/h susțin 20 Wh/km.
+    // 900 W la 45 km/h aduc 20 Wh/km.
     const threshold = screen
-      .getAllByText('Prag susținut de soare')
+      .getAllByText('Aport solar pe km')
       .map((node) => node.closest('[data-stat]'))
       .find(Boolean) as HTMLElement
 
@@ -177,12 +177,12 @@ describe('cu flux activ', () => {
   it('arată panoul complet de formule', () => {
     renderPage()
 
-    expect(screen.getAllByText('Viteză economică').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Viteză economică/).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Rezistență internă').length).toBeGreaterThan(0)
     expect(
       screen.getAllByText('Randament lanț electric').length,
     ).toBeGreaterThan(0)
-    expect(screen.getAllByText('Bilanț energetic').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Bilanț pachet').length).toBeGreaterThan(0)
   })
 })
 

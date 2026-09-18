@@ -54,7 +54,7 @@ export type VehicleParameters = {
 }
 
 export const VEHICLE: VehicleParameters = {
-  massKg: 280,
+  massKg: 200,
   rollingResistance: 0.006,
   dragArea: 0.12,
   drivetrainEfficiency: 0.92,
@@ -105,8 +105,14 @@ export function efficiencyKmPerKwh(
 }
 
 /**
- * Bilanțul de putere: cât intră de la panouri minus cât cere consumatorul.
- * Pozitiv înseamnă că pachetul se încarcă în timp ce mașina merge.
+ * Bilanțul de putere: cât intră de la panouri minus cât cere **sarcina**
+ * (motor plus electronica de bord). Pozitiv înseamnă că pachetul se încarcă în
+ * timp ce mașina merge.
+ *
+ * Atenție la ce se pune în `loadW`: `battery_power_w` este deja diferența
+ * `sarcină − solar`, deci cu el aici solarul ar fi scăzut de două ori. Când
+ * puterea de pachet există, bilanțul este pur și simplu `−battery_power_w`;
+ * funcția de față servește cazul în care se cunosc doar solarul și motorul.
  */
 export function netPowerW(
   solarW: number | null,
@@ -126,14 +132,22 @@ export function regenRatioPct(
   return ((regenWh as number) / (consumedWh as number)) * 100
 }
 
-/** Cât din energia consumată a fost acoperită de panouri, în %. */
+/**
+ * Cât din energia cerută de mașină (sarcina) a fost acoperită de panouri, în %.
+ *
+ * Numitorul este **sarcina**, nu energia scoasă din pachet. `energy_consumed_wh`
+ * numără doar ce a ieșit din pachet, adică sarcina *minus* aportul solar; față
+ * de el, raportul ar depăși 100 % într-o zi însorită și ar minți în restul
+ * zilelor. Sarcina se obține din energia motorului sau, în lipsa ei, din
+ * `E_pachet + E_solar`.
+ */
 export function solarFractionPct(
   solarWh: number | null,
-  consumedWh: number | null,
+  loadWh: number | null,
 ): number | null {
-  if (!allFinite(solarWh, consumedWh)) return null
-  if ((consumedWh as number) <= 0) return null
-  return ((solarWh as number) / (consumedWh as number)) * 100
+  if (!allFinite(solarWh, loadWh)) return null
+  if ((loadWh as number) <= 0) return null
+  return ((solarWh as number) / (loadWh as number)) * 100
 }
 
 /**
@@ -189,16 +203,20 @@ export function rangeKm(
 }
 
 /**
- * În cât timp se golește pachetul la consumul net actual, în secunde.
- * Un consum net negativ (mai mult soare decât consum) nu golește nimic.
+ * În cât timp se golește pachetul la puterea scoasă din el acum, în secunde.
+ *
+ * `packDrawW` este puterea **netă** care iese din pachet (`battery_power_w`,
+ * pozitivă la descărcare). Solarul este deja scăzut din ea de către magistrală,
+ * deci nu se mai scade o dată aici. O valoare negativă sau zero (pachetul se
+ * încarcă sau stă) nu golește nimic.
  */
 export function timeToEmptyS(
   remainingWh: number | null,
-  netDrawW: number | null,
+  packDrawW: number | null,
 ): number | null {
-  if (!allFinite(remainingWh, netDrawW)) return null
-  if ((netDrawW as number) <= 0) return null
-  return ((remainingWh as number) / (netDrawW as number)) * SECONDS_PER_HOUR
+  if (!allFinite(remainingWh, packDrawW)) return null
+  if ((packDrawW as number) <= 0) return null
+  return ((remainingWh as number) / (packDrawW as number)) * SECONDS_PER_HOUR
 }
 
 /** Puterea calculată din tensiune și curent, pentru verificarea încrucișată. */
@@ -321,8 +339,10 @@ export function roadLoadW(
 /**
  * Viteza la care energia pe kilometru este minimă.
  *
- * Energia pe metru este `Crr·m·g + ½·ρ·CdA·v² + P_aux/v`. Derivata în raport cu
- * `v` se anulează la `v = (P_aux / (ρ · CdA))^(1/3)`: sub această viteză
+ * Energia pe metru scoasă din pachet este
+ * `(Crr·m·g + ½·ρ·CdA·v²) / η + P_aux/v` — aceeași împărțire la randamentul
+ * lanțului de tracțiune pe care o face `roadLoadW`. Derivata în raport cu `v`
+ * se anulează la `v = (η · P_aux / (ρ · CdA))^(1/3)`: sub această viteză
  * electronica de bord consumă prea mult timp, peste ea aerodinamica devine
  * dominantă. Este viteza-țintă pentru un tur economic.
  */
@@ -332,16 +352,26 @@ export function economicSpeedKph(
 ): number | null {
   const denominator = airDensity * vehicle.dragArea
   if (denominator <= 0 || vehicle.auxiliaryLoadW <= 0) return null
-  return Math.cbrt(vehicle.auxiliaryLoadW / denominator) * 3.6
+  if (!finite(vehicle.drivetrainEfficiency) || vehicle.drivetrainEfficiency <= 0) {
+    return null
+  }
+  return (
+    Math.cbrt(
+      (vehicle.drivetrainEfficiency * vehicle.auxiliaryLoadW) / denominator,
+    ) * 3.6
+  )
 }
 
 /**
  * Cât din puterea de rulare se duce în aerodinamică, în procente.
  * Peste ~60 % înseamnă că viteza, nu masa, este problema.
  */
-export function aeroSharePct(speedMs: number | null): number | null {
-  const rolling = rollingResistanceW(speedMs)
-  const aero = aeroDragW(speedMs)
+export function aeroSharePct(
+  speedMs: number | null,
+  vehicle: VehicleParameters = VEHICLE,
+): number | null {
+  const rolling = rollingResistanceW(speedMs, vehicle)
+  const aero = aeroDragW(speedMs, vehicle)
   if (rolling === null || aero === null) return null
   const total = rolling + aero
   if (total <= 0) return null

@@ -13,15 +13,38 @@ import { useTelemetryStore } from '../../stores/telemetry-store'
  * Include consumul pe tur, calculat din trecerile prin start/finiș - indicatorul
  * după care se ia decizia de strategie într-o cursă solară.
  */
+/** Cardurile mari de sus; nu se repetă și ca rânduri în lista de jos. */
+const OVERVIEW_CARDS = [
+  'battery_soc_pct',
+  'battery_power_w',
+  'solar_power_w',
+  'energy_consumed_wh',
+]
+
+/** Puterea culeasă de fiecare convertor: singura serie desenată în grafic. */
+const MPPT_POWER = /^mppt\d+_power_w$/
+/** Rândurile din panoul MPPT: putere, ieșire, randament, temperatură radiator. */
+const MPPT_MAIN =
+  /^mppt\d+_(power_w|output_power_w|efficiency_pct|heatsink_temp_c)$/
+
 export function EnergyPage() {
   const energySignals = useSignalsByGroup('energy')
-  const mppt = energySignals.filter((signal) => signal.key.startsWith('mppt'))
+  const mpptPower = energySignals.filter((signal) =>
+    MPPT_POWER.test(signal.key),
+  )
+  const mpptMain = energySignals.filter((signal) => MPPT_MAIN.test(signal.key))
+  // Tensiuni, curenți, mod, defect, id CAN: utile la diagnostic, nu la o
+  // privire; stau pliate sub rândurile principale.
+  const mpptOther = energySignals.filter(
+    (signal) => signal.key.startsWith('mppt') && !MPPT_MAIN.test(signal.key),
+  )
   // Celulele au panoul lor; fara excluderea de aici, cele 32 de tensiuni ar
-  // aparea si ca 32 de randuri de text in bilantul energetic.
+  // aparea si ca 32 de randuri de text in lista de semnale.
   const rest = energySignals.filter(
     (signal) =>
       !signal.key.startsWith('mppt') &&
       !signal.overview &&
+      !OVERVIEW_CARDS.includes(signal.key) &&
       !isInCellPanel(signal.key) &&
       !isInCapacityPanel(signal.key),
   )
@@ -83,17 +106,32 @@ export function EnergyPage() {
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel title="Controlere MPPT" subtitle="Putere per controler">
+        <Panel
+          title="Controlere MPPT"
+          subtitle="Cele două convertoare: putere culeasă, livrată, randament"
+        >
           <ul className="space-y-2">
-            {mppt.map((signal) => (
+            {mpptMain.map((signal) => (
               <MetricRow key={signal.key} signalKey={signal.key} />
             ))}
           </ul>
+          {mpptOther.length > 0 && (
+            <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+              <summary className="cursor-pointer text-sm text-zinc-300">
+                Diagnostic convertoare ({mpptOther.length} semnale)
+              </summary>
+              <ul className="mt-2 space-y-2">
+                {mpptOther.map((signal) => (
+                  <MetricRow key={signal.key} signalKey={signal.key} />
+                ))}
+              </ul>
+            </details>
+          )}
           <div className="mt-4">
             <TelemetryChart
-              signalKeys={mppt.map((signal) => signal.key)}
+              signalKeys={mpptPower.map((signal) => signal.key)}
               height={200}
-              ariaLabel="Grafic cu puterea fiecărui controler MPPT"
+              ariaLabel="Grafic cu puterea culeasă de fiecare convertor MPPT"
             />
           </div>
         </Panel>
@@ -102,7 +140,10 @@ export function EnergyPage() {
       </section>
 
       <section className="mt-4">
-        <Panel title="Bilanț energetic" subtitle="Cumulat pe sesiunea curentă">
+        <Panel
+          title="Semnale de energie"
+          subtitle="Restul semnalelor din grupul energie, așa cum le raportează mașina"
+        >
           <ul className="grid gap-2 sm:grid-cols-2">
             {rest.map((signal) => (
               <MetricRow key={signal.key} signalKey={signal.key} />

@@ -1,4 +1,9 @@
-import { formatDuration } from '../lib/format'
+import { formatDuration, formatNumber } from '../lib/format'
+import {
+  PACK_POWER_KNEE_W,
+  compressPackPowerW,
+  isPackPowerCompressed,
+} from '../lib/power-scale'
 import { useAnalyticsStore } from '../stores/analytics-store'
 import { StatTile } from './StatTile'
 import { toneAbove, toneBelow } from '../lib/stat-tone'
@@ -18,6 +23,17 @@ import { toneAbove, toneBelow } from '../lib/stat-tone'
  * fiindcă zero este exact ce s-a acumulat.
  */
 
+/**
+ * Explicația de sub „Putere din pachet". Peste pragul de compresie spune și
+ * valoarea măsurată, altfel cifra afișată ar fi singura vizibilă nicăieri.
+ */
+function packPowerHint(measuredW: number | null): string {
+  const base =
+    'Puterea netă scoasă din pachet acum, după aportul solar. Pozitivă la descărcare.'
+  if (!isPackPowerCompressed(measuredW)) return base
+  return `${base} Afișare comprimată peste ${formatNumber(PACK_POWER_KNEE_W, 0)} W; măsurat ${formatNumber(measuredW as number, 0)} W.`
+}
+
 export function ConsumptionPanel() {
   const snapshot = useAnalyticsStore((state) => state.snapshot)
   const { totals } = snapshot
@@ -26,21 +42,24 @@ export function ConsumptionPanel() {
     <div className="@container grid gap-4">
       <Section title="Acum, în mașină">
         <StatTile
-          label="Consum instantaneu"
-          value={snapshot.consumptionW}
+          label="Putere din pachet"
+          value={compressPackPowerW(snapshot.packPowerW)}
           unit="W"
           decimals={0}
-          formula="P = U · I"
-          hint="Puterea scoasă din pachet în acest moment."
-          tone={toneAbove(snapshot.consumptionW, 3000, 6000)}
+          formula="P_baterie (sau U · I)"
+          hint={packPowerHint(snapshot.packPowerW)}
+          // Tonul rămâne pe valoarea măsurată: compresia este de afișare, nu de
+          // avertizare. Un consum real de 6 kW trebuie să fie tot roșu, chiar
+          // dacă cifra de pe placă scrie 3 995 W.
+          tone={toneAbove(snapshot.packPowerW, 3000, 6000)}
         />
         <StatTile
           label="Recuperare regenerativă"
           value={snapshot.regenW}
           unit="W"
           decimals={0}
-          formula="P_regen = max(0, −P_motor)"
-          hint="Putere întoarsă în pachet. Numeric, W și Wh/h sunt același lucru."
+          formula="P_regen raportată (sau max(0, −P_motor))"
+          hint="Puterea întoarsă acum în pachet de frâna regenerativă."
           tone={
             snapshot.regenW !== null && snapshot.regenW > 0 ? 'good' : 'neutral'
           }
@@ -50,7 +69,7 @@ export function ConsumptionPanel() {
           value={snapshot.solarW}
           unit="W"
           decimals={0}
-          formula="Σ MPPT"
+          formula="solar_power_w (Σ MPPT în verificarea mapării)"
           tone="good"
         />
         <StatTile
@@ -58,8 +77,8 @@ export function ConsumptionPanel() {
           value={snapshot.netPowerW}
           unit="W"
           decimals={0}
-          formula="P_net = P_solar − P_consum"
-          hint="Pozitiv: pachetul se încarcă în mers."
+          formula="P_solar − P_sarcină = −P_baterie"
+          hint="Pozitiv: pachetul se încarcă în mers. Solarul este deja scăzut în puterea din pachet, nu se mai scade o dată."
           tone={
             snapshot.netPowerW === null
               ? 'neutral'
@@ -72,20 +91,20 @@ export function ConsumptionPanel() {
 
       <Section title="Cât costă un kilometru">
         <StatTile
-          label="Consum specific (recent)"
+          label="Consum din pachet (2 min)"
           value={snapshot.recentWhPerKm}
           unit="Wh/km"
           decimals={1}
-          formula="ΔE / Δd, fereastră 2 min"
-          hint="Reacționează la stilul de condus în câteva zeci de secunde."
+          formula="ΔE_pachet / Δd, fereastră 2 min"
+          hint="Reacționează la stilul de condus în câteva zeci de secunde. Energia scoasă din pachet pe kilometru, după aportul solar."
           tone={toneAbove(snapshot.recentWhPerKm, 25, 40)}
         />
         <StatTile
-          label="Consum specific (sesiune)"
+          label="Consum din pachet (sesiune)"
           value={snapshot.whPerKm}
           unit="Wh/km"
           decimals={1}
-          formula="E_total / d_total"
+          formula="E_pachet / d_total"
           tone={toneAbove(snapshot.whPerKm, 25, 40)}
         />
         <StatTile
@@ -97,12 +116,12 @@ export function ConsumptionPanel() {
           tone={toneBelow(snapshot.kmPerKwh, 40, 25)}
         />
         <StatTile
-          label="Vârf de consum (P95)"
-          value={snapshot.peakConsumptionW}
+          label="Vârf putere din pachet (P95)"
+          value={snapshot.peakPackPowerW}
           unit="W"
           decimals={0}
-          formula="percentila 95 pe 2 min"
-          hint="Cât cere mașina în vârfuri, fără ca un eșantion aberant să dicteze cifra."
+          formula="percentila 95 a P_baterie pe 2 min"
+          hint="Cât scoate mașina din pachet în vârfuri, fără ca un eșantion aberant să dicteze cifra."
         />
       </Section>
 
@@ -113,7 +132,9 @@ export function ConsumptionPanel() {
           unit="W"
           decimals={0}
           formula="(Crr·m·g·v + ½ρCdA·v³ + m·g·v·sinθ)/η + P_aux"
-          hint="Puterea teoretic necesară la viteza și panta actuale."
+          hint={
+            'Puterea teoretic necesară la viteza și panta actuale (aer standard, 1,2 kg/m³). Rămâne „—" fără o pantă validă din altitudine.'
+          }
         />
         <StatTile
           label="Pondere aerodinamică"
@@ -125,12 +146,12 @@ export function ConsumptionPanel() {
           tone={toneAbove(snapshot.aeroSharePct, 60, 80)}
         />
         <StatTile
-          label="Viteză economică"
+          label="Viteză economică (aer standard)"
           value={snapshot.economicSpeedKph}
           unit="km/h"
           decimals={1}
-          formula="v = ∛(P_aux / (ρ·CdA))"
-          hint="Viteza la care energia pe kilometru este minimă."
+          formula="v = ∛(η·P_aux / (ρ·CdA))"
+          hint="Viteza la care energia pe kilometru este minimă, cu ρ = 1,2 kg/m³. Pagina Vreme o recalculează cu densitatea măsurată."
         />
         <StatTile
           label="Randament lanț electric"
@@ -157,7 +178,7 @@ export function ConsumptionPanel() {
           value={snapshot.rangeKm}
           unit="km"
           decimals={1}
-          formula="E_rămasă / consum specific"
+          formula="E_rămasă / consum din pachet"
         />
         <StatTile
           label="Timp până la golire"
@@ -166,10 +187,10 @@ export function ConsumptionPanel() {
           }
           unit="min"
           decimals={0}
-          formula="E_rămasă / P_net"
+          formula="E_rămasă / P_baterie"
           hint={
             snapshot.timeToEmptyS === null
-              ? 'Cu bilanț pozitiv pachetul nu se golește.'
+              ? 'Pachetul nu se descarcă acum (sau nu există putere de pachet validă).'
               : formatDuration(snapshot.timeToEmptyS)
           }
         />
@@ -182,11 +203,12 @@ export function ConsumptionPanel() {
           tone={toneBelow(snapshot.projectedSoc30MinPct, 25, 12)}
         />
         <StatTile
-          label="Rată de descărcare"
+          label="Variație SOC"
           value={snapshot.socRatePctPerMin}
           unit="%/min"
           decimals={2}
           formula="panta SOC pe 2 min"
+          hint="Negativ = pachetul se descarcă, pozitiv = se încarcă."
         />
         <StatTile
           label="Rată de curent"
@@ -209,12 +231,15 @@ export function ConsumptionPanel() {
           hint="Creșterea ei în cursă arată o celulă sau un conector care cedează."
         />
         <StatTile
-          label="Bilanț energetic"
-          value={totals.samples > 0 ? snapshot.energyBalanceWh : null}
+          label="Bilanț pachet"
+          value={totals.samples > 0 ? snapshot.packBalanceWh : null}
           unit="Wh"
           decimals={0}
-          formula="E_solar + E_regen − E_consumat"
-          tone={snapshot.energyBalanceWh >= 0 ? 'good' : 'warn'}
+          formula="E_intrat − E_ieșit din pachet"
+          hint="Ce a intrat în pachet (regenerare și surplus solar) minus ce a ieșit. Solarul consumat direct de motor nu trece prin pachet."
+          tone={
+            totals.samples > 0 && snapshot.packBalanceWh >= 0 ? 'good' : 'warn'
+          }
         />
       </Section>
 
@@ -227,18 +252,18 @@ export function ConsumptionPanel() {
           formula="contor mașină sau ∫v dt"
         />
         <StatTile
-          label="Energie consumată"
+          label="Energie ieșită din pachet"
           value={totals.energyConsumedWh}
           unit="Wh"
           decimals={0}
-          formula="contor BMS sau ∫P dt"
+          formula="contor BMS sau ∫max(0, P_baterie) dt"
         />
         <StatTile
-          label="Energie regenerată"
+          label="Energie intrată în pachet"
           value={totals.energyRegenWh}
           unit="Wh"
           decimals={0}
-          formula="∫ max(0, −P) dt"
+          formula="contor BMS sau ∫ max(0, −P) dt"
           tone="good"
         />
         <StatTile
@@ -250,11 +275,11 @@ export function ConsumptionPanel() {
           tone="good"
         />
         <StatTile
-          label="Recuperat din consum"
+          label="Recuperat din ce a ieșit"
           value={snapshot.regenRatioPct}
           unit="%"
           decimals={1}
-          formula="E_regen / E_consumat"
+          formula="E_intrat / E_ieșit"
           tone={toneBelow(snapshot.regenRatioPct, 3, 1)}
         />
         <StatTile
@@ -262,7 +287,8 @@ export function ConsumptionPanel() {
           value={snapshot.solarFractionPct}
           unit="%"
           decimals={0}
-          formula="E_solar / E_consumat"
+          formula="E_solar / E_sarcină"
+          hint="Raportat la sarcina totală (motor), nu la ce a ieșit din pachet."
           tone={toneBelow(snapshot.solarFractionPct, 60, 30)}
         />
         <StatTile

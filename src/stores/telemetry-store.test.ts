@@ -33,8 +33,8 @@ describe('urmărirea tururilor (D5)', () => {
     ])
   })
 
-  it.fails(
-    'D5 (defect confirmat): după ce numărătorul revine la 1, tururile noi se închid din nou',
+  it(
+    'D5 (reparat): după ce numărătorul revine la 1, tururile noi se închid din nou',
     () => {
       const store = useTelemetryStore.getState()
       store.applyFrame(frameWithLap(0, 1))

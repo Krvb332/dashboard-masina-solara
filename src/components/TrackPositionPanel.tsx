@@ -96,12 +96,12 @@ export function TrackPositionPanel() {
           }
         />
         <Row
-          label="Tur"
+          label="Tur (în fereastra afișată)"
           value={`${run.lapCount + 1}`}
           tone={match.onTrack ? 'none' : 'muted'}
         />
         <Row
-          label="Distanță pe traseu"
+          label="Distanță pe traseu (fereastra afișată, ~10 min)"
           value={`${formatNumber(run.distanceM / 1000, 2)} km`}
         />
         <Row

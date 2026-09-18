@@ -8,6 +8,12 @@ import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useEffect, useMemo, useRef } from 'react'
 import { formatClock, formatNumber } from '../lib/format'
+import {
+  compressPackPowerW,
+  expandPackPowerW,
+  isCompressedPowerSignal,
+  isPackPowerCompressed,
+} from '../lib/power-scale'
 import type { TelemetryRingBuffer } from '../lib/ring-buffer'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
 import type { SignalDefinition } from '../schemas/telemetry'
@@ -21,6 +27,11 @@ import { useTelemetryStore } from '../stores/telemetry-store'
  * pentru fiecare punct ar costa mult mai mult decât desenarea propriu-zisă.
  * Numărul de puncte este redus la lățimea disponibilă în pixeli, păstrând
  * minimul și maximul fiecărui interval, ca vârfurile scurte să nu dispară.
+ *
+ * Puterea de pachet se desenează pe scala comprimată din `power-scale` - peste
+ * 3,3 kW curba se apropie asimptotic de 4 kW - ca un vârf de demaraj să nu mai
+ * turtească restul ferestrei. Tooltipul dă și valoarea măsurată, obținută prin
+ * inversa compresiei, deci cifra reală rămâne la un hover distanță.
  */
 
 echarts.use([
@@ -157,7 +168,7 @@ export function TelemetryChart({
       chart.setOption({
         series: activeKeys.map((key) => ({
           id: key,
-          data: buffer.toSeries(key, windowMs, maxPoints),
+          data: scaleSeries(key, buffer.toSeries(key, windowMs, maxPoints)),
         })),
       })
     }
@@ -201,6 +212,18 @@ export function TelemetryChart({
   )
 }
 
+/**
+ * Trece seria prin scala de afișare, dacă semnalul are una. Punctele vin din
+ * buffer ca `[timp, valoare]`; se rescrie doar valoarea.
+ */
+function scaleSeries(
+  key: string,
+  points: [number, number][],
+): [number, number][] {
+  if (!isCompressedPowerSignal(key)) return points
+  return points.map(([time, value]) => [time, compressPackPowerW(value)])
+}
+
 type TooltipParam = { seriesName: string; value: [number, number] }
 
 function tooltipFormatter(
@@ -222,7 +245,21 @@ function tooltipFormatter(
     const definition = key ? catalogByKey[key] : undefined
     const value = formatNumber(item.value[1], definition?.decimals ?? 1)
     const unit = definition?.unit ? ` ${definition.unit}` : ''
-    return `${item.seriesName}: <b>${value}${unit}</b>`
+
+    // Peste prag, punctul desenat nu mai este cel măsurat: îl reconstituim din
+    // inversa compresiei și îl punem lângă, ca vârful real să fie citibil.
+    const measured =
+      key &&
+      isCompressedPowerSignal(key) &&
+      isPackPowerCompressed(item.value[1])
+        ? expandPackPowerW(item.value[1])
+        : null
+    const raw =
+      measured === null
+        ? ''
+        : ` <span style="opacity:.6">(măsurat ${formatNumber(measured, definition?.decimals ?? 1)}${unit})</span>`
+
+    return `${item.seriesName}: <b>${value}${unit}</b>${raw}`
   })
 
   return [time, ...rows].join('<br/>')

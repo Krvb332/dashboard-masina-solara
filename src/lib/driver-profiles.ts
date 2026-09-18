@@ -40,6 +40,7 @@ export type DriverProfile = {
 
 /** Bilanțul unui stint, calculat din diferența de contoare. */
 export type StintSummary = {
+  /** Secunde cu date proaspete în stint, nu durata de la urcare la coborâre. */
   durationS: number
   distanceKm: number
   energyConsumedWh: number
@@ -201,9 +202,13 @@ export function summarize(
         : null,
     maxSpeedKph: delta.maxSpeedKph,
     regenRatioPct: regenRatioPct(delta.energyRegenWh, delta.energyConsumedWh),
+    // Raportat la sarcină (energia motorului sau pachet + solar), nu la ce a
+    // ieșit din pachet — acela este deja net de solar.
     solarFractionPct: solarFractionPct(
       delta.energySolarWh,
-      delta.energyConsumedWh,
+      delta.motorEnergyWh > 0
+        ? delta.motorEnergyWh
+        : delta.energyConsumedWh + delta.energySolarWh,
     ),
     harshAccelCount: delta.harshAccelCount,
     harshBrakeCount: delta.harshBrakeCount,

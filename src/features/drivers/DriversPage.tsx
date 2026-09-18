@@ -67,15 +67,16 @@ export function DriversPage() {
                 value={stint.summary.averageSpeedKph}
                 unit="km/h"
                 decimals={1}
-                formula="Δd / Δt"
+                formula="Δd / timp cu date"
+                hint="Împărțit la secundele cu telemetrie proaspătă, nu la durata stintului."
               />
               <StatTile
-                label="Recuperat"
+                label="Intrat în pachet"
                 value={stint.summary.energyRegenWh}
                 unit="Wh"
                 decimals={0}
-                formula="ΔE_regen"
-                tone="good"
+                formula="ΔE_intrat (regenerare și surplus solar)"
+                tone={stint.summary.energyRegenWh > 0 ? 'good' : 'neutral'}
               />
               <StatTile
                 label="Solar"
@@ -83,7 +84,7 @@ export function DriversPage() {
                 unit="Wh"
                 decimals={0}
                 formula="ΔE_solar"
-                tone="good"
+                tone={stint.summary.energySolarWh > 0 ? 'good' : 'neutral'}
               />
               <StatTile
                 label="Accelerări bruște"

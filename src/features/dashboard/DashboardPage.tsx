@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { SpeedCard } from '../../components/SpeedCard'
+import { DERIVED_SIGNALS, derivedBuffer } from '../../lib/derived-buffer'
 import { TeensyStatsPanel } from '../../components/TeensyStatsPanel'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap } from '../../components/TrackMap'
 import { WeatherSummary } from '../../components/WeatherPanel'
 import { useOverviewSignals } from '../../hooks/useSignal'
+import { formatNumber } from '../../lib/format'
 import { useStreamStats } from '../../hooks/useStreamStats'
 import { useTelemetryStore } from '../../stores/telemetry-store'
 
@@ -26,9 +29,15 @@ export function DashboardPage() {
         aria-label="Indicatori principali"
       >
         {catalogLoaded ? (
-          overview.map((signal) => (
-            <MetricCard key={signal.key} signalKey={signal.key} />
-          ))
+          overview.map((signal) =>
+            // Viteza are card propriu: când placa nu o trimite, o deduce din
+            // turație și spune asta, în loc să rămână „—" la nesfârșit.
+            signal.key === 'vehicle_speed_kph' ? (
+              <SpeedCard key={signal.key} />
+            ) : (
+              <MetricCard key={signal.key} signalKey={signal.key} />
+            ),
+          )
         ) : (
           <SkeletonCards />
         )}
@@ -67,9 +76,15 @@ export function DashboardPage() {
           <TrackMap height={260} />
         </Panel>
 
-        <Panel title="Viteză și turație" subtitle="Ultimele 7 minute">
+        <Panel
+          title="Viteza mașinii"
+          subtitle="Ultimele 7 minute · raportată de placă sau dedusă din turația motorului"
+        >
           <TelemetryChart
-            signalKeys={['vehicle_speed_kph']}
+            signalKeys={['calc_ground_speed_kph']}
+            source={derivedBuffer}
+            extraDefinitions={DERIVED_SIGNALS}
+            windowMs={7 * 60_000}
             height={260}
             ariaLabel="Grafic cu viteza mașinii"
           />
@@ -102,7 +117,7 @@ function LiveRate() {
   return (
     <span className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-400">
       {effectiveHz > 0
-        ? `Recepție ${effectiveHz.toFixed(1).replace('.', ',')} Hz`
+        ? `Ritm cadre ${formatNumber(effectiveHz, 1)} Hz`
         : 'Fără flux'}
     </span>
   )

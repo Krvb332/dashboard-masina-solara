@@ -18,7 +18,7 @@ import { rpmFromSpeedKph } from '../lib/telemetry-math'
 export const CATALOG_KEYS = (
   'vehicle_speed_kph lap_number distance_km battery_soc_pct battery_voltage_v ' +
   'battery_current_a battery_power_w cell_voltage_min_v cell_voltage_max_v ' +
-  'solar_power_w mppt1_power_w mppt2_power_w mppt3_power_w mppt4_power_w ' +
+  'solar_power_w mppt1_power_w mppt2_power_w ' +
   'energy_consumed_wh energy_regen_wh energy_solar_wh battery_temp_max_c ' +
   'battery_temp_min_c battery_temp_delta_c motor_temp_c inverter_temp_c ' +
   'motor_power_w motor_rpm throttle_pct gps_latitude_deg gps_longitude_deg ' +
@@ -177,10 +177,8 @@ export function makeSample(
     cell_voltage_min_v: 3.65,
     cell_voltage_max_v: 3.72,
     solar_power_w: solarW,
-    mppt1_power_w: solarW / 4,
-    mppt2_power_w: solarW / 4,
-    mppt3_power_w: solarW / 4,
-    mppt4_power_w: solarW / 4,
+    mppt1_power_w: solarW / 2,
+    mppt2_power_w: solarW / 2,
     energy_consumed_wh: consumedWh,
     energy_regen_wh: elapsedS * 0.002,
     energy_solar_wh: (solarW * elapsedS) / 3600,

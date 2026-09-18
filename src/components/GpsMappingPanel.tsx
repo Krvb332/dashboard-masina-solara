@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useMemo } from 'react'
-import { useSignal } from '../hooks/useSignal'
+import { useGroundSpeed } from '../hooks/useSignal'
 import { useTick } from '../hooks/useTick'
 import { formatNumber, NO_VALUE } from '../lib/format'
 import {
@@ -40,16 +40,11 @@ const SPEED_MISMATCH_PCT = 25
 
 export function GpsMappingPanel() {
   const now = useTick(REFRESH_MS)
-  // `gps_speed_kph` a fost scos. Panoul era scris pentru un vehicul cu sursă de
-  // viteză independentă de GNSS — o roată cu senzor — și punea cele două una
-  // lângă alta. Mașina asta nu are așa ceva: `vehicle_speed_kph` *este* viteza
-  // raportată de GNSS. Rândul cerea o cheie care nu exista nici în catalog, nici
-  // printre semnalele derivate local, deci arăta „—" la nesfârșit.
-  //
-  // Comparația care a rămas are însă sens și funcționează: viteza dedusă din
-  // pozițiile succesive, față de cea raportată de modul. Sunt două căi diferite
-  // către același număr, iar dezacordul dintre ele chiar spune ceva.
-  const wheelSpeed = useSignal('vehicle_speed_kph')
+  // Viteza din turație (raportată de placă sau dedusă aici cu Ø 548 mm) este
+  // independentă de poziție. Confruntată cu viteza dedusă din fixurile
+  // succesive, dezacordul dintre ele chiar spune ceva: fie coordonatele sunt
+  // scalate greșit, fie circumferința roții nu este a anvelopei montate.
+  const groundSpeed = useGroundSpeed()
 
   const report = useMemo(() => {
     // `now` este dependența care declanșează recalcularea; bufferul nu emite
@@ -86,10 +81,8 @@ export function GpsMappingPanel() {
     report.derivedSpeedMs === null ? null : report.derivedSpeedMs * 3.6
 
   const mismatchPct =
-    derivedKph !== null && wheelSpeed.fresh && (wheelSpeed.value ?? 0) > 5
-      ? (Math.abs(derivedKph - (wheelSpeed.value as number)) /
-          (wheelSpeed.value as number)) *
-        100
+    derivedKph !== null && groundSpeed.kph !== null && groundSpeed.kph > 5
+      ? (Math.abs(derivedKph - groundSpeed.kph) / groundSpeed.kph) * 100
       : null
 
   return (
@@ -128,7 +121,7 @@ export function GpsMappingPanel() {
           }
         />
         <Row
-          label="Lungime urmă"
+          label="Lungime urmă (brută, neproiectată)"
           value={
             report.lengthM > 0
               ? `${formatNumber(report.lengthM / 1000, 3)} km`
@@ -152,11 +145,15 @@ export function GpsMappingPanel() {
           }
         />
         <Row
-          label="Viteză raportată"
+          label={
+            groundSpeed.source === 'turație'
+              ? 'Viteză din turație (Ø 548 mm)'
+              : 'Viteză raportată (placă, din turație)'
+          }
           value={
-            wheelSpeed.fresh
-              ? `${formatNumber(wheelSpeed.value as number, 1)} km/h`
-              : NO_VALUE
+            groundSpeed.kph === null
+              ? NO_VALUE
+              : `${formatNumber(groundSpeed.kph, 1)} km/h`
           }
         />
         <Row

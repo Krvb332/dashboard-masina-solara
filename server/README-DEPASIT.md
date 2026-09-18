@@ -15,6 +15,7 @@ Ce diferă față de acest server de referință:
 | Compresie și retenție | fără | automate |
 | Refuz pe WebSocket | închide înainte de handshake, clientul vede 1006 | 4401, cu motiv |
 | Energie și distanță | trimise de vehicul | calculate prin integrare pe server |
+| Vreme (`/api/v1/weather`) | `app/core/weather.py` | portat identic în `backend/app/compat/weather.py`, aceleași variabile `TELEMETRY_WEATHER_*` |
 
 **Nu porni acest server în paralel cu celălalt.** Amândouă ascultă pe portul
 8000; ai vedea date vechi sau deloc, fără un mesaj de eroare care să explice de ce.
