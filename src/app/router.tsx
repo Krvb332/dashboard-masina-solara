@@ -15,23 +15,31 @@ import { WeatherPage } from '../features/weather/WeatherPage'
  * navigare. Zonele urmează împărțirea din documentul de arhitectură: stare
  * generală, energie, temperaturi/alarme și traseu.
  */
-export const router = createBrowserRouter([
+export const router = createBrowserRouter(
+  [
+    {
+      path: '/',
+      element: <AppShell />,
+      children: [
+        { index: true, element: <DashboardPage /> },
+        { path: 'statistici', element: <StatisticsPage /> },
+        { path: 'energie', element: <EnergyPage /> },
+        { path: 'traseu', element: <TrackPage /> },
+        { path: 'vreme', element: <WeatherPage /> },
+        { path: 'piloti', element: <DriversPage /> },
+        { path: 'sistem', element: <SystemPage /> },
+        { path: 'sesiuni', element: <SessionsPage /> },
+      ],
+    },
+    {
+      path: '*',
+      element: <NotFoundPage />,
+    },
+  ],
   {
-    path: '/',
-    element: <AppShell />,
-    children: [
-      { index: true, element: <DashboardPage /> },
-      { path: 'statistici', element: <StatisticsPage /> },
-      { path: 'energie', element: <EnergyPage /> },
-      { path: 'traseu', element: <TrackPage /> },
-      { path: 'vreme', element: <WeatherPage /> },
-      { path: 'piloti', element: <DriversPage /> },
-      { path: 'sistem', element: <SystemPage /> },
-      { path: 'sesiuni', element: <SessionsPage /> },
-    ],
+    // Vite servește aplicația sub `base` (`/static/`) și în dezvoltare, deci pe
+    // `localhost:5173` adresa reală este `/static/`; fără basename fiecare pagină
+    // ar cădea pe 404. În producție backendul livrează `index.html` la `/`.
+    basename: import.meta.env.DEV ? import.meta.env.BASE_URL : '/',
   },
-  {
-    path: '*',
-    element: <NotFoundPage />,
-  },
-])
+)

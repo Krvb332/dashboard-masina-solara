@@ -101,7 +101,9 @@ describe('DashboardPage', () => {
     const cards = within(screen.getByLabelText('Indicatori principali'))
     expect(cards.getAllByText('—')).toHaveLength(2)
     expect(screen.getByText(/Ultima valoare acum/)).toBeInTheDocument()
-    expect(screen.getByText('Fără date de la mașină')).toBeInTheDocument()
+    expect(
+      screen.getByText('Semnalul nu a fost primit de la mașină'),
+    ).toBeInTheDocument()
   })
 
   it('include graficul, harta și statisticile plăcii', () => {

@@ -98,18 +98,14 @@ export function buildChecks(lookup: ValueLookup): ConsistencyCheck[] {
     {
       key: 'solar_power',
       label: 'Putere solară față de suma MPPT',
-      expected: sum(lookup, [
-        'mppt1_power_w',
-        'mppt2_power_w',
-        'mppt3_power_w',
-        'mppt4_power_w',
-      ]),
+      // Mașina are două convertoare; totalul solar trebuie să fie suma lor.
+      expected: sum(lookup, ['mppt1_power_w', 'mppt2_power_w']),
       actual: lookup('solar_power_w'),
       unit: 'W',
       decimals: 0,
       tolerancePct: 6,
       toleranceAbs: 25,
-      hint: 'Un controler MPPT lipsește din sumă sau raportează în alte unități.',
+      hint: 'Unul dintre cele două convertoare MPPT lipsește din sumă sau raportează în alte unități.',
     },
     {
       key: 'cell_delta',

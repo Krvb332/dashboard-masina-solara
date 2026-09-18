@@ -121,8 +121,10 @@ function describe(
   ageMs: number | undefined,
 ): string {
   if (!fresh) {
+    // Nu „fără date de la mașină": restul semnalelor pot curge în continuare.
+    // Lipsește exact acest semnal, iar cardul spune asta.
     return ageMs === undefined || ageMs === 0
-      ? 'Fără date de la mașină'
+      ? 'Semnalul nu a fost primit de la mașină'
       : `Ultima valoare acum ${formatAge(ageMs)}`
   }
 

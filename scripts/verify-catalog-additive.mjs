@@ -23,6 +23,16 @@ import { parseGroupLabels, parseSignalCatalog } from './lib/parse-signals.mjs'
 
 const CATALOG_PATH = 'server/app/signals.py'
 
+/**
+ * Semnale scoase deliberat din catalog, cu motivul. Scriptul apără catalogul de
+ * dispariții *accidentale*; o retragere decisă de echipă se consemnează aici,
+ * ca verificarea să rămână strictă pentru tot restul.
+ */
+const RETIRED_SIGNALS = new Map([
+  ['mppt3_power_w', 'mașina are doar două convertoare MPPT'],
+  ['mppt4_power_w', 'mașina are doar două convertoare MPPT'],
+])
+
 /** Câmpurile care descriu comportamentul semnalului și nu au voie să se schimbe. */
 const PROTECTED_FIELDS = [
   'label',
@@ -118,6 +128,7 @@ function main() {
     const current = afterByKey.get(signal.key)
 
     if (current === undefined) {
+      if (RETIRED_SIGNALS.has(signal.key)) continue
       problems.push(`Semnalul „${signal.key}" a dispărut din catalog.`)
       continue
     }
