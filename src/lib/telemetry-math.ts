@@ -40,6 +40,17 @@ export type VehicleParameters = {
   packCapacityAh: number
   /** Consumul constant al electronicii de bord, în W. */
   auxiliaryLoadW: number
+  /**
+   * Diametrul exterior al roții motoare, în m — anvelopa umflată, așa cum
+   * rulează. Din el se deduce viteza la sol din turația motorului.
+   */
+  wheelDiameterM: number
+  /**
+   * Câte rotații face motorul pentru o rotație a roții. Motorul din roată
+   * (Mitsuba M2096) nu are transmisie, deci 1: o rotație a lui este o rotație
+   * a roții.
+   */
+  gearRatio: number
 }
 
 export const VEHICLE: VehicleParameters = {
@@ -50,9 +61,13 @@ export const VEHICLE: VehicleParameters = {
   packEnergyWh: 5000,
   packCapacityAh: 45,
   auxiliaryLoadW: 40,
+  wheelDiameterM: 0.548,
+  gearRatio: 1,
 }
 
 const SECONDS_PER_HOUR = 3600
+const MINUTES_PER_HOUR = 60
+const METERS_PER_KM = 1000
 
 function finite(value: number | null | undefined): value is number {
   return value !== null && value !== undefined && Number.isFinite(value)
@@ -331,6 +346,66 @@ export function aeroSharePct(speedMs: number | null): number | null {
   const total = rolling + aero
   if (total <= 0) return null
   return (aero / total) * 100
+}
+
+// --- viteză din turație ----------------------------------------------------
+
+/** Circumferința roții, în m: `C = π · D`. */
+export function wheelCircumferenceM(
+  vehicle: VehicleParameters = VEHICLE,
+): number | null {
+  if (!finite(vehicle.wheelDiameterM) || vehicle.wheelDiameterM <= 0) {
+    return null
+  }
+  return Math.PI * vehicle.wheelDiameterM
+}
+
+/**
+ * Viteza la sol dedusă din turația motorului, în km/h.
+ *
+ *     v [km/h] = n [rpm] / i · π · D [m] · 60 / 1000
+ *
+ * `n` este turația motorului, `i` raportul de transmisie (1 la motorul din
+ * roată), `D` diametrul roții. Cu D = 0,548 m circumferința este 1,7216 m,
+ * deci fiecare rpm valorează 0,1033 km/h: 1000 rpm înseamnă 103,3 km/h.
+ *
+ * Este a doua cale către viteză, independentă de GNSS: nu depinde de fix, de
+ * numărul de sateliți sau de întârzierea modulului. Când cele două nu se
+ * potrivesc, fie diametrul de aici nu este cel al anvelopei montate, fie
+ * receptorul GNSS raportează greșit — panoul de verificare a mapării le pune
+ * față în față.
+ *
+ * Turația este semnată (negativă în marșarier), dar viteza la sol este o
+ * mărime fără sens: întoarcem modulul. Zero rpm înseamnă chiar oprit, deci
+ * rezultatul este `0`, nu `null`.
+ */
+export function speedKphFromRpm(
+  rpm: number | null,
+  vehicle: VehicleParameters = VEHICLE,
+): number | null {
+  const circumference = wheelCircumferenceM(vehicle)
+  if (!finite(rpm) || circumference === null) return null
+  if (!finite(vehicle.gearRatio) || vehicle.gearRatio <= 0) return null
+
+  const wheelRpm = Math.abs(rpm) / vehicle.gearRatio
+  return (wheelRpm * circumference * MINUTES_PER_HOUR) / METERS_PER_KM
+}
+
+/**
+ * Inversul: turația motorului la o viteză dată, în rpm. Folosită de
+ * generatoarele de telemetrie sintetică, ca turația și viteza pe care le
+ * produc să fie coerente cu aceeași roată.
+ */
+export function rpmFromSpeedKph(
+  speedKph: number | null,
+  vehicle: VehicleParameters = VEHICLE,
+): number | null {
+  const circumference = wheelCircumferenceM(vehicle)
+  if (!finite(speedKph) || speedKph < 0 || circumference === null) return null
+  if (!finite(vehicle.gearRatio) || vehicle.gearRatio <= 0) return null
+
+  const metersPerMinute = (speedKph * METERS_PER_KM) / MINUTES_PER_HOUR
+  return (metersPerMinute / circumference) * vehicle.gearRatio
 }
 
 // --- statistică de serie ---------------------------------------------------

@@ -20,6 +20,7 @@ import {
   smoothnessScore,
   solarFractionPct,
   specificConsumptionWhPerKm,
+  speedKphFromRpm,
   thermalHeadroomPct,
   timeToEmptyS,
   timeToThresholdS,
@@ -104,6 +105,12 @@ export type AnalyticsSnapshot = {
   live: boolean
 
   averageSpeedKph: number | null
+  /**
+   * Viteza dedusă din turația motorului și circumferința roții (Ø 548 mm).
+   * A doua cale către viteză, independentă de GNSS; se confruntă cu cea
+   * raportată în panoul de verificare a mapării.
+   */
+  wheelSpeedKph: number | null
   /** Consumul specific pe toată sesiunea. */
   whPerKm: number | null
   /** Consumul specific pe fereastra glisantă — reacționează la stilul de condus. */
@@ -631,6 +638,7 @@ export class TelemetryAnalytics {
 
       averageSpeedKph:
         this.speeds.length > 0 ? mean(this.speeds.map(([, v]) => v)) : null,
+      wheelSpeedKph: speedKphFromRpm(fresh(quality, 'motor_rpm'), this.vehicle),
       whPerKm,
       recentWhPerKm: recent,
       kmPerKwh: efficiencyKmPerKwh(totals.distanceKm, totals.energyConsumedWh),

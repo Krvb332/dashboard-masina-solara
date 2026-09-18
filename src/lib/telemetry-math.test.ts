@@ -26,13 +26,16 @@ import {
   remainingEnergyWh,
   roadLoadW,
   rollingResistanceW,
+  rpmFromSpeedKph,
   smoothnessScore,
+  speedKphFromRpm,
   solarFractionPct,
   specificConsumptionWhPerKm,
   stdDev,
   thermalHeadroomPct,
   timeToEmptyS,
   timeToThresholdS,
+  wheelCircumferenceM,
 } from './telemetry-math'
 
 /**
@@ -224,6 +227,61 @@ describe('rezistențe la înaintare', () => {
   })
 })
 
+describe('viteză din turație', () => {
+  it('roata are 548 mm diametru și circumferința π · 0,548 = 1,7216 m', () => {
+    expect(VEHICLE.wheelDiameterM).toBe(0.548)
+    expect(VEHICLE.gearRatio).toBe(1)
+    expect(wheelCircumferenceM()).toBeCloseTo(1.7216, 4)
+  })
+
+  it('60 rpm este o rotație pe secundă: 1,7216 m/s, adică 6,198 km/h', () => {
+    expect(speedKphFromRpm(60)).toBeCloseTo(1.7216 * 3.6, 3)
+  })
+
+  it('1000 rpm înseamnă 103,3 km/h — 0,1033 km/h pe fiecare rpm', () => {
+    // 1000 rot/min · 1,7216 m = 1721,6 m/min = 103 295 m/h.
+    expect(speedKphFromRpm(1000)).toBeCloseTo(103.3, 1)
+    expect(speedKphFromRpm(1)).toBeCloseTo(0.1033, 4)
+  })
+
+  it('turația negativă (marșarier) dă aceeași viteză la sol', () => {
+    expect(speedKphFromRpm(-500)).toBeCloseTo(speedKphFromRpm(500) as number, 9)
+  })
+
+  it('zero rpm este o mașină oprită, nu „fără date”', () => {
+    expect(speedKphFromRpm(0)).toBe(0)
+  })
+
+  it('cu transmisie 2:1 roata face jumătate din turele motorului', () => {
+    const geared = { ...VEHICLE, gearRatio: 2 }
+    expect(speedKphFromRpm(1000, geared)).toBeCloseTo(
+      (speedKphFromRpm(1000) as number) / 2,
+      9,
+    )
+  })
+
+  it('o roată mai mare merge mai repede la aceeași turație', () => {
+    const bigger = { ...VEHICLE, wheelDiameterM: 0.548 * 1.1 }
+    expect(speedKphFromRpm(800, bigger)).toBeCloseTo(
+      (speedKphFromRpm(800) as number) * 1.1,
+      9,
+    )
+  })
+
+  it('formula inversă închide cercul: rpm → km/h → rpm', () => {
+    expect(rpmFromSpeedKph(speedKphFromRpm(837) as number)).toBeCloseTo(837, 9)
+    // 44 km/h = 733,3 m/min; împărțit la 1,7216 m dă 426 rpm.
+    expect(rpmFromSpeedKph(44)).toBeCloseTo(426, 0)
+  })
+
+  it('fără roată sau cu transmisie absurdă nu există viteză', () => {
+    expect(speedKphFromRpm(500, { ...VEHICLE, wheelDiameterM: 0 })).toBeNull()
+    expect(speedKphFromRpm(500, { ...VEHICLE, gearRatio: 0 })).toBeNull()
+    expect(wheelCircumferenceM({ ...VEHICLE, wheelDiameterM: -1 })).toBeNull()
+    expect(rpmFromSpeedKph(-10)).toBeNull()
+  })
+})
+
 describe('statistică de serie', () => {
   it('media ignoră valorile care nu sunt numere finite', () => {
     expect(mean([2, 4, 6])).toBe(4)
@@ -351,6 +409,8 @@ describe('robustețe la date lipsă', () => {
       timeToThresholdS(90, null, 5),
       ratePerMinute([]),
       integrateWh([[0, 10]]),
+      speedKphFromRpm(null),
+      rpmFromSpeedKph(Number.NaN),
     ]
 
     for (const result of results) expect(result).toBeNull()

@@ -62,6 +62,12 @@ MAX_SPEED_MS = 30.0
 MAX_ACCEL_MS2 = 0.9
 MAX_BRAKE_MS2 = 1.6
 AMBIENT_C = 24.0
+# Roata motoare: 548 mm diametru, motor în roată (fără transmisie). Aceleași
+# valori ca `VEHICLE` din `src/lib/telemetry-math.ts`, ca turația simulată să
+# treacă verificarea „viteză față de turație × circumferință" din dashboard.
+WHEEL_DIAMETER_M = 0.548
+GEAR_RATIO = 1.0
+WHEEL_CIRCUMFERENCE_M = math.pi * WHEEL_DIAMETER_M
 
 # --- traseul (Circuit Zolder, geometrie reală) -----------------------------
 #
@@ -311,7 +317,8 @@ def step(state: CarState, dt: float, rng: random.Random) -> dict[str, float]:
         "motor_temp_c": round(state.motor_temp_c, 2),
         "inverter_temp_c": round(state.inverter_temp_c, 2),
         "motor_power_w": round(motor_w, 1),
-        "motor_rpm": round(state.speed_ms * 3.6 * 11.5, 0),
+        # n [rpm] = v [m/s] · 60 / (π · D) · i
+        "motor_rpm": round(state.speed_ms * 60.0 / WHEEL_CIRCUMFERENCE_M * GEAR_RATIO, 0),
         "throttle_pct": round(max(0.0, min(100.0, accel / MAX_ACCEL_MS2 * 100)), 1),
         "gps_latitude_deg": round(lat, 6),
         "gps_longitude_deg": round(lon, 6),

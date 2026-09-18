@@ -3,6 +3,7 @@ import type {
   SignalQuality,
   TelemetryFrame,
 } from '../schemas/telemetry'
+import { rpmFromSpeedKph } from '../lib/telemetry-math'
 
 /**
  * Telemetrie sintetică pentru testele de audit și benchmark-uri.
@@ -189,7 +190,9 @@ export function makeSample(
     motor_temp_c: 55 + 10 * Math.sin(elapsedS / 300),
     inverter_temp_c: 48,
     motor_power_w: motorW,
-    motor_rpm: speedKph * 9.5,
+    // Aceeași roată ca în formula dashboardului (Ø 548 mm), ca verificarea
+    // „viteză față de turație" să treacă pe date sintetice.
+    motor_rpm: rpmFromSpeedKph(speedKph) ?? 0,
     throttle_pct: 42 + 3 * Math.sin(elapsedS),
     gps_latitude_deg: point.lat + noiseLat,
     gps_longitude_deg: point.lon + noiseLon,

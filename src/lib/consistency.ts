@@ -14,6 +14,8 @@
  * Funcțiile sunt pure ca să poată fi testate: panoul le doar afișează.
  */
 
+import { speedKphFromRpm } from './telemetry-math'
+
 export type ValueLookup = (key: string) => number | null
 
 export type ConsistencyStatus = 'ok' | 'mismatch' | 'unknown'
@@ -158,6 +160,18 @@ export function buildChecks(lookup: ValueLookup): ConsistencyCheck[] {
       tolerancePct: 15,
       toleranceAbs: 3,
       hint: 'Circumferința roții din firmware nu corespunde anvelopei, sau coordonatele nu sunt în grade zecimale.',
+    },
+    {
+      key: 'wheel_speed',
+      label: 'Viteză raportată față de turație × circumferință roată',
+      // v = n · π · D · 60 / 1000, cu D = 0,548 m (vezi `speedKphFromRpm`).
+      expected: speedKphFromRpm(lookup('motor_rpm')),
+      actual: lookup('vehicle_speed_kph'),
+      unit: 'km/h',
+      decimals: 1,
+      tolerancePct: 10,
+      toleranceAbs: 3,
+      hint: 'Diametrul roții (548 mm) sau raportul de transmisie din formulă nu corespund mașinii, sau viteza GNSS este greșită.',
     },
   ]
 }

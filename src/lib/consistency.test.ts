@@ -42,6 +42,8 @@ function coherentPack(): Record<string, number> {
     solar_power_w: 800,
     vehicle_speed_kph: 44,
     gps_speed_kph: 45,
+    // 44 km/h = 733,3 m/min; pe roata de 548 mm (1,7216 m) = 426 rpm.
+    motor_rpm: 426,
   }
 }
 
@@ -114,6 +116,14 @@ describe('greșeli de scalare — control pozitiv pentru fiecare verificare', ()
     const values = { ...coherentPack(), vehicle_speed_kph: 62 }
     expect(
       statusOf(runConsistencyChecks(lookupFrom(values)), 'speed_source'),
+    ).toBe('mismatch')
+  })
+
+  it('prinde o turație care nu corespunde vitezei pe roata de 548 mm', () => {
+    // 570 rpm ar însemna 58,9 km/h, nu 44.
+    const values = { ...coherentPack(), motor_rpm: 570 }
+    expect(
+      statusOf(runConsistencyChecks(lookupFrom(values)), 'wheel_speed'),
     ).toBe('mismatch')
   })
 })

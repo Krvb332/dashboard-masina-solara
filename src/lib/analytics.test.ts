@@ -39,6 +39,23 @@ function feed(
   })
 }
 
+describe('viteza din turație', () => {
+  it('600 rpm pe roata de 548 mm înseamnă 61,98 km/h', () => {
+    const analytics = new TelemetryAnalytics()
+    feed(analytics, 200, [{ motor_rpm: valid(600) }])
+    // 10 rot/s · π · 0,548 m = 17,216 m/s; ori 3,6 = 61,98 km/h.
+    expect(analytics.snapshot().wheelSpeedKph).toBeCloseTo(61.98, 1)
+  })
+
+  it('o turație învechită nu produce viteză', () => {
+    const analytics = new TelemetryAnalytics()
+    feed(analytics, 200, [
+      { motor_rpm: stale(600), battery_soc_pct: valid(80) },
+    ])
+    expect(analytics.snapshot().wheelSpeedKph).toBeNull()
+  })
+})
+
 describe('fără flux conectat', () => {
   let analytics: TelemetryAnalytics
 
@@ -57,6 +74,7 @@ describe('fără flux conectat', () => {
     const snapshot = analytics.snapshot()
 
     expect(snapshot.live).toBe(false)
+    expect(snapshot.wheelSpeedKph).toBeNull()
     expect(snapshot.whPerKm).toBeNull()
     expect(snapshot.recentWhPerKm).toBeNull()
     expect(snapshot.kmPerKwh).toBeNull()

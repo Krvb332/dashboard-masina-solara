@@ -104,6 +104,17 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
     decimals: 1,
     color: '#94a3b8',
   }),
+  calc_wheel_speed_kph: definition({
+    key: 'calc_wheel_speed_kph',
+    label: 'Viteză din turație',
+    unit: 'km/h',
+    decimals: 1,
+    min: 0,
+    max: 140,
+    color: '#fbbf24',
+    description:
+      'Turația motorului × circumferința roții (Ø 548 mm). Independentă de GNSS.',
+  }),
 }
 
 function definition(
@@ -152,6 +163,7 @@ export function pushDerived(timeMs: number, snapshot: AnalyticsSnapshot): void {
   add('calc_efficiency_km_per_kwh', snapshot.kmPerKwh)
   add('calc_drivetrain_eff_pct', snapshot.drivetrainEfficiencyPct)
   add('calc_grade_pct', snapshot.gradePct)
+  add('calc_wheel_speed_kph', snapshot.wheelSpeedKph)
 
   // Bilanțul energetic există chiar și la zero: „nu s-a consumat nimic" este o
   // afirmație validă despre o sesiune abia pornită.
