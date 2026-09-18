@@ -35,18 +35,20 @@ Mai sunt două motive, la fel de practice:
 
 ## 2. Configurare
 
-Toate setările stau în `server/.env` (ignorat de git). Model complet în
-`server/.env.example`.
+Endpointul este servit de serverul de telemetrie din `ServerRUTTUCN`
+(`backend/app/compat/weather.py`), iar setările stau în `.env`-ul acelui repo
+(ignorat de git; `node scripts/setup.mjs` adaugă liniile și păstrează valorile
+completate). După orice schimbare: `docker compose up -d api`.
 
-```bash
-cp server/.env.example server/.env
-```
+Serverul de referință din `server/` de aici are aceeași implementare și
+aceleași nume de variabile, dar nu se mai folosește (vezi
+`server/README-DEPASIT.md`). Variabilele de mai jos sunt identice în ambele.
 
 | Variabilă                          | Implicit | Ce face                                                                |
 | ---------------------------------- | -------- | ---------------------------------------------------------------------- |
 | `TELEMETRY_WEATHER_API_KEY`        | _(gol)_  | Cheia Google Maps Platform. Gol = secțiunea raportează „indisponibil”. |
-| `TELEMETRY_WEATHER_DEFAULT_LAT`    | _(gol)_  | Latitudinea circuitului, folosită cât timp GPS-ul nu are fix.          |
-| `TELEMETRY_WEATHER_DEFAULT_LON`    | _(gol)_  | Longitudinea circuitului.                                              |
+| `TELEMETRY_WEATHER_DEFAULT_LAT`    | `50.9894` | Latitudinea circuitului (Zolder), folosită cât timp GPS-ul nu are fix. |
+| `TELEMETRY_WEATHER_DEFAULT_LON`    | `5.2564`  | Longitudinea circuitului (Zolder). Vremea este a pistei, nu a Clujului. |
 | `TELEMETRY_WEATHER_TTL_S`          | `600`    | Cât timp o observație rămâne bună. Fiecare apel este facturat.         |
 | `TELEMETRY_WEATHER_FORECAST_HOURS` | `12`     | Câte ore de prognoză se cer. `0` dezactivează prognoza.                |
 | `TELEMETRY_WEATHER_TIMEOUT_S`      | `8`      | Cât așteptăm furnizorul înainte să declarăm căderea.                   |
