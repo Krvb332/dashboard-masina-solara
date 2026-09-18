@@ -1,4 +1,5 @@
 import { useErrorStore } from '../stores/error-store'
+import { ApiError, resetCounters } from './api'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 import { useDriverStore } from '../stores/driver-store'
@@ -97,4 +98,23 @@ export function resetTelemetry(): void {
   // Se ridica INAINTE de reconectare: snapshotul poate sosi imediat.
   discardNextSnapshotHistory = true
   control?.reconnect()
+
+  // Contoarele cumulate (distanță, energie consumată, energie recuperată) se
+  // adună pe SERVER, în `Derivations`, nu aici. Nimic din ce s-a golit mai sus
+  // nu le atinge: înainte de apelul ăsta, după reset graficele porneau de la
+  // zero dar distanța rămânea la 111 km, iar butonul părea că nu-și face treaba.
+  //
+  // Pleacă ULTIMUL și nu se așteaptă. Ecranul trebuie să se golească și când
+  // serverul răspunde 403 (dashboard pornit cu token de `viewer`), când nu are
+  // endpointul (server mai vechi) sau când nu răspunde deloc — altfel o eroare
+  // de rețea ar strica și partea care funcționa perfect.
+  void resetCounters().catch((error: unknown) => {
+    const motiv =
+      error instanceof ApiError && error.status === 403
+        ? 'e nevoie de token de operator'
+        : String(error)
+    console.warn(
+      `Ecranul a fost resetat, dar contoarele vehiculului nu: ${motiv}`,
+    )
+  })
 }

@@ -123,6 +123,21 @@ export function stopSession(): Promise<SessionInfo> {
   return request('/api/v1/sessions/stop', sessionInfoSchema, { method: 'POST' })
 }
 
+/**
+ * Aduce la zero contoarele cumulate ale vehiculului (distanță, energie
+ * consumată, energie recuperată).
+ *
+ * Sunt însumate pe server, nu în browser, deci golirea graficelor nu le atinge:
+ * fără apelul ăsta, după reset numerele rămâneau la valorile de dinainte și
+ * butonul părea că nu-și face treaba.
+ *
+ * Cere rol de `operator`: zeroarea schimbă ce văd toți cei conectați, nu doar
+ * ecranul celui care apasă. Cu un token de `viewer` răspunsul este 403.
+ */
+export function resetCounters(): Promise<unknown> {
+  return request('/api/v1/reset-counters', z.unknown(), { method: 'POST' })
+}
+
 /** Alarmele înregistrate într-o sesiune, folosite în timpul redării. */
 export function fetchSessionAlarms(sessionId: string): Promise<Alarm[]> {
   return request(
