@@ -27,6 +27,7 @@ import { ConnectionBadge } from './ConnectionBadge'
 import { DriverSwitcher } from './DriverSwitcher'
 import { ErrorPanel, ErrorPanelToggle } from './ErrorPanel'
 import { ErrorToasts } from './ErrorToasts'
+import { RecordingButton } from './RecordingButton'
 import { ReplayControls } from './ReplayControls'
 
 /**
@@ -222,7 +223,8 @@ export function AppShell() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <RecordingButton />
             <DriverSwitcher />
             {mode === 'live' ? <ConnectionBadge /> : <ReplayBadge />}
             <ErrorPanelToggle />

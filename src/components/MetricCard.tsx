@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useSignal } from '../hooks/useSignal'
 import { formatAge, formatSigned } from '../lib/format'
+import { compressPackPowerW, isCompressedPowerSignal } from '../lib/power-scale'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
 import { toneFor, type MetricTone } from '../lib/tone'
 import type { SignalDefinition } from '../schemas/telemetry'
@@ -128,8 +129,14 @@ function describe(
       : `Ultima valoare acum ${formatAge(ageMs)}`
   }
 
-  const previous = telemetryBuffer.valueAgo(signalKey, TREND_WINDOW_MS)
-  const current = telemetryBuffer.latest(signalKey)
+  // Tendința se calculează pe cifrele *afișate*, nu pe cele brute: pentru
+  // puterea de pachet, un „+2 400 W în ultimul minut" sub o valoare comprimată
+  // la 3,9 kW ar fi o diferență pe care cardul nu o arată nicăieri.
+  const scale = isCompressedPowerSignal(signalKey)
+    ? compressPackPowerW
+    : (value: number | null) => value
+  const previous = scale(telemetryBuffer.valueAgo(signalKey, TREND_WINDOW_MS))
+  const current = scale(telemetryBuffer.latest(signalKey))
 
   if (previous === null || current === null) {
     return definition?.description || 'Recepție normală'

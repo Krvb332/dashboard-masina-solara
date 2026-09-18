@@ -1,55 +1,53 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { CircleStop, Download, Play, Radio } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Panel } from '../../components/Panel'
-import {
-  exportUrl,
-  fetchSessions,
-  startSession,
-  stopSession,
-} from '../../lib/api'
+import { SESSIONS_QUERY_KEY, useRecording } from '../../hooks/useRecording'
+import { exportUrl, fetchSessions } from '../../lib/api'
 import { formatDateTime, formatDuration, formatNumber } from '../../lib/format'
+import { describeRecordingError } from '../../lib/recording'
 import { replayDriver } from '../../lib/replay-driver'
 import type { SessionInfo } from '../../schemas/telemetry'
 import { useSessionStore } from '../../stores/session-store'
-import { useTelemetryStore } from '../../stores/telemetry-store'
 
 /**
  * Sesiuni: pornirea și oprirea înregistrării, redarea și exportul CSV.
  *
  * Înregistrarea rulează pe server, deci continuă chiar dacă browserul se
  * închide - dashboardul nu trebuie să fie o dependență a colectării de date.
+ * Butonul din antet și panoul de aici folosesc același hook, ca să nu existe
+ * două păreri despre dacă se înregistrează sau nu.
  */
 export function SessionsPage() {
-  const queryClient = useQueryClient()
   const [note, setNote] = useState('')
-  const recordingSessionId = useTelemetryStore(
-    (state) => state.recordingSessionId,
-  )
+  const {
+    recordingSessionId,
+    isStarting,
+    isStopping,
+    error: recordingError,
+    start,
+    stop,
+  } = useRecording()
   const replaySession = useSessionStore((state) => state.session)
   const loading = useSessionStore((state) => state.loading)
   const error = useSessionStore((state) => state.error)
 
-  const { data: sessions = [], isLoading } = useQuery({
-    queryKey: ['sessions'],
+  // Nota aparține înregistrării care tocmai a pornit; câmpul rămâne oricum
+  // dezactivat cât timp ea rulează.
+  useEffect(() => {
+    if (recordingSessionId !== null) setNote('')
+  }, [recordingSessionId])
+
+  const {
+    data: sessions = [],
+    isLoading,
+    error: listError,
+  } = useQuery({
+    queryKey: SESSIONS_QUERY_KEY,
     queryFn: () => fetchSessions(50),
     refetchInterval: 10_000,
   })
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['sessions'] })
-  }
-
-  const start = useMutation({
-    mutationFn: () => startSession(note),
-    onSuccess: () => {
-      setNote('')
-      invalidate()
-    },
-  })
-
-  const stop = useMutation({ mutationFn: stopSession, onSuccess: invalidate })
 
   return (
     <>
@@ -75,8 +73,8 @@ export function SessionsPage() {
             {recordingSessionId ? (
               <button
                 type="button"
-                onClick={() => stop.mutate()}
-                disabled={stop.isPending}
+                onClick={stop}
+                disabled={isStopping}
                 className="flex min-h-11 items-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-60"
               >
                 <CircleStop size={16} aria-hidden="true" />
@@ -85,8 +83,8 @@ export function SessionsPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => start.mutate()}
-                disabled={start.isPending}
+                onClick={() => start(note)}
+                disabled={isStarting}
                 className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-60"
               >
                 <Radio size={16} aria-hidden="true" />
@@ -95,10 +93,9 @@ export function SessionsPage() {
             )}
           </div>
 
-          {(start.isError || stop.isError) && (
-            <p className="mt-3 text-sm text-rose-300">
-              Operația a eșuat. Verifică dacă ai rol de operator și dacă
-              serviciul răspunde.
+          {recordingError && (
+            <p className="mt-3 text-sm text-rose-300" role="alert">
+              {recordingError}
             </p>
           )}
         </Panel>
@@ -108,13 +105,23 @@ export function SessionsPage() {
         <Panel
           title="Sesiuni înregistrate"
           subtitle={
-            isLoading ? 'Se încarcă…' : `${sessions.length} sesiuni salvate`
+            isLoading
+              ? 'Se încarcă…'
+              : listError
+                ? 'Lista nu a putut fi încărcată'
+                : `${sessions.length} sesiuni salvate`
           }
           bodyClassName="overflow-x-auto"
         >
           {error && <p className="mb-3 text-sm text-rose-300">{error}</p>}
 
-          {sessions.length === 0 && !isLoading ? (
+          {listError ? (
+            // Fără asta, un 401 arăta ca „0 sesiuni salvate" — o listă goală
+            // de bună-credință, nu o listă pe care n-o avem voie s-o vedem.
+            <p className="text-sm text-rose-300" role="alert">
+              {describeRecordingError(listError)}
+            </p>
+          ) : sessions.length === 0 && !isLoading ? (
             <p className="text-sm text-zinc-500">
               Nicio sesiune salvată. Pornește o înregistrare cât timp mașina
               trimite date.

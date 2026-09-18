@@ -1,4 +1,9 @@
-import { formatDuration } from '../lib/format'
+import { formatDuration, formatNumber } from '../lib/format'
+import {
+  PACK_POWER_KNEE_W,
+  compressPackPowerW,
+  isPackPowerCompressed,
+} from '../lib/power-scale'
 import { useAnalyticsStore } from '../stores/analytics-store'
 import { StatTile } from './StatTile'
 import { toneAbove, toneBelow } from '../lib/stat-tone'
@@ -18,6 +23,17 @@ import { toneAbove, toneBelow } from '../lib/stat-tone'
  * fiindcă zero este exact ce s-a acumulat.
  */
 
+/**
+ * Explicația de sub „Putere din pachet". Peste pragul de compresie spune și
+ * valoarea măsurată, altfel cifra afișată ar fi singura vizibilă nicăieri.
+ */
+function packPowerHint(measuredW: number | null): string {
+  const base =
+    'Puterea netă scoasă din pachet acum, după aportul solar. Pozitivă la descărcare.'
+  if (!isPackPowerCompressed(measuredW)) return base
+  return `${base} Afișare comprimată peste ${formatNumber(PACK_POWER_KNEE_W, 0)} W; măsurat ${formatNumber(measuredW as number, 0)} W.`
+}
+
 export function ConsumptionPanel() {
   const snapshot = useAnalyticsStore((state) => state.snapshot)
   const { totals } = snapshot
@@ -27,11 +43,14 @@ export function ConsumptionPanel() {
       <Section title="Acum, în mașină">
         <StatTile
           label="Putere din pachet"
-          value={snapshot.packPowerW}
+          value={compressPackPowerW(snapshot.packPowerW)}
           unit="W"
           decimals={0}
           formula="P_baterie (sau U · I)"
-          hint="Puterea netă scoasă din pachet acum, după aportul solar. Pozitivă la descărcare."
+          hint={packPowerHint(snapshot.packPowerW)}
+          // Tonul rămâne pe valoarea măsurată: compresia este de afișare, nu de
+          // avertizare. Un consum real de 6 kW trebuie să fie tot roșu, chiar
+          // dacă cifra de pe placă scrie 3 995 W.
           tone={toneAbove(snapshot.packPowerW, 3000, 6000)}
         />
         <StatTile

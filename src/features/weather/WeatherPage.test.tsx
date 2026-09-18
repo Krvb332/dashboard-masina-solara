@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -91,10 +92,14 @@ describe('rutarea și navigația', () => {
   })
 
   it('apare în navigația principală, cu link către /vreme', () => {
+    // Ca în aplicație: shell-ul stă sub furnizorul de interogări (butonul de
+    // înregistrare din antet folosește mutații react-query).
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <AppShell />
-      </MemoryRouter>,
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/']}>
+          <AppShell />
+        </MemoryRouter>
+      </QueryClientProvider>,
     )
 
     const nav = screen.getByRole('navigation', {

@@ -62,6 +62,8 @@ type TelemetryStore = {
 
   setConnection: (connection: ConnectionState) => void
   setCatalog: (signals: SignalDefinition[]) => void
+  /** Starea înregistrării, cunoscută din răspunsul REST înaintea următorului cadru WebSocket. */
+  setRecordingSession: (sessionId: string | null) => void
   applyFrame: (frame: TelemetryFrame) => void
   countInvalidFrame: () => void
   acknowledgeAlarm: (alarmId: string) => void
@@ -104,6 +106,8 @@ export const useTelemetryStore = create<TelemetryStore>((set) => ({
         signals.map((signal) => [signal.key, signal]),
       ),
     }),
+
+  setRecordingSession: (sessionId) => set({ recordingSessionId: sessionId }),
 
   applyFrame: (frame) =>
     set((state) => {
