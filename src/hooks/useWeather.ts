@@ -4,6 +4,7 @@ import type { Advice } from '../lib/coaching'
 import { fetchWeather } from '../lib/api'
 import { collectFixes } from '../lib/gps-buffer'
 import { isUsableFix } from '../lib/gps'
+import { speedKphFromRpm } from '../lib/telemetry-math'
 import { weatherAdvice } from '../lib/weather-advice'
 import { computeWeatherImpact, type WeatherImpact } from '../lib/weather-impact'
 import { useWeatherStore } from '../stores/weather-store'
@@ -129,7 +130,9 @@ export function useVehicleContext(): {
     }
 
     return {
-      speedKph: value('vehicle_speed_kph'),
+      // Aceeași regulă ca în acumulator: viteza raportată sau, fără ea,
+      // turația trecută prin roata de 548 mm.
+      speedKph: value('vehicle_speed_kph') ?? speedKphFromRpm(value('motor_rpm')),
       headingDeg: headingFromFixes(),
       altitudeM: value('gps_altitude_m'),
       solarPowerW: value('solar_power_w'),

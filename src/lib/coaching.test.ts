@@ -54,7 +54,7 @@ describe('fără flux', () => {
 
 describe('consum peste ce produc panourile', () => {
   it('semnalează depășirea pragului de echilibru', () => {
-    const result = ids(
+    const advice = buildAdvice(
       snapshot({
         recentWhPerKm: 40,
         solarW: 900,
@@ -62,14 +62,22 @@ describe('consum peste ce produc panourile', () => {
         totals: { ...emptySnapshot().totals, samples: 500 },
       }),
     )
-    // 900 W la 45 km/h susțin 20 Wh/km; 40 este dublul.
-    expect(result).toContain('energy-deficit')
+    // 900 W la 45 km/h aduc 20 Wh/km; cu 40 Wh/km scoși din pachet, sarcina
+    // este 60 Wh/km — de trei ori aportul solar.
+    const entry = advice.find((item) => item.id === 'energy-deficit')
+    expect(entry).toBeDefined()
+    expect(entry?.detail).toContain('60,0')
+    expect(entry?.detail).toContain('20,0')
+    expect(entry?.detail).toContain('200 %')
   })
 
-  it('tace când consumul este sub prag', () => {
+  it('tace când sarcina este aproape de aportul solar', () => {
     const result = ids(
       snapshot({
-        recentWhPerKm: 18,
+        // 6 Wh/km din pachet peste cei 20 aduși de soare: sarcină 26 Wh/km,
+        // sub 1,5 × 20. Consumul din pachet nu se compară singur cu aportul —
+        // el este deja diferența dintre sarcină și soare.
+        recentWhPerKm: 6,
         solarW: 900,
         averageSpeedKph: 45,
         totals: { ...emptySnapshot().totals, samples: 500 },
@@ -260,7 +268,7 @@ describe('ordinea sfaturilor', () => {
   it('cu totul în regulă rămâne un singur mesaj, de confirmare', () => {
     const advice = buildAdvice(
       snapshot({
-        recentWhPerKm: 16,
+        recentWhPerKm: 6,
         solarW: 900,
         averageSpeedKph: 45,
         smoothnessScore: 92,
@@ -269,6 +277,9 @@ describe('ordinea sfaturilor', () => {
 
     expect(advice).toHaveLength(1)
     expect(advice[0].level).toBe('good')
+    // Cifrele din spatele confirmării: pachet, soare, sarcină.
+    expect(advice[0].detail).toContain('6,0')
+    expect(advice[0].detail).toContain('26,0')
   })
 
   it('fără distanță parcursă, mesajul spune că se strâng date', () => {

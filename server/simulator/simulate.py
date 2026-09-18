@@ -46,7 +46,7 @@ from .track_zolder import (
 
 # --- parametrii mașinii ----------------------------------------------------
 
-MASS_KG = 280.0
+MASS_KG = 200.0
 ROLLING_RESISTANCE = 0.006
 DRAG_AREA = 0.12  # Cd * A
 AIR_DENSITY = 1.2

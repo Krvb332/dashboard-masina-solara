@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { speedKphFromRpm } from '../lib/telemetry-math'
 import type {
   QualityState,
   SignalDefinition,
@@ -54,4 +55,32 @@ export function useSignalsByGroup(group: string): SignalDefinition[] {
 export function useOverviewSignals(): SignalDefinition[] {
   const catalog = useTelemetryStore((state) => state.catalog)
   return useMemo(() => catalog.filter((signal) => signal.overview), [catalog])
+}
+
+export type GroundSpeedSource = 'raportată' | 'turație' | null
+
+export type GroundSpeed = {
+  /** Viteza la sol, km/h. `null` când nu există nici viteză, nici turație proaspătă. */
+  kph: number | null
+  source: GroundSpeedSource
+}
+
+/**
+ * Viteza la sol pe care o afișează dashboardul, cu aceeași regulă ca în
+ * acumulatorul de statistici: `vehicle_speed_kph` dacă placa o trimite, altfel
+ * turația motorului trecută prin circumferința roții de 548 mm. Sursa este
+ * expusă ca interfața să spună de unde vine cifra, nu doar cifra.
+ */
+export function useGroundSpeed(): GroundSpeed {
+  const reported = useSignal('vehicle_speed_kph')
+  const rpm = useSignal('motor_rpm')
+
+  return useMemo(() => {
+    if (reported.fresh && reported.value !== null) {
+      return { kph: reported.value, source: 'raportată' as const }
+    }
+    const fromRpm = rpm.fresh ? speedKphFromRpm(rpm.value) : null
+    if (fromRpm !== null) return { kph: fromRpm, source: 'turație' as const }
+    return { kph: null, source: null }
+  }, [reported.fresh, reported.value, rpm.fresh, rpm.value])
 }

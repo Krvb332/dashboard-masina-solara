@@ -61,7 +61,7 @@ CATALOG: tuple[Signal, ...] = (
         max=140,
         overview=True,
         color="#60a5fa",
-        description="Viteza la sol raportată de computerul de bord.",
+        description="Viteza la sol calculată de firmware din turația motorului și circumferința roții configurată pe placă.",
     ),
     Signal(
         key="lap_number",
@@ -134,6 +134,7 @@ CATALOG: tuple[Signal, ...] = (
         min=-8000,
         max=14000,
         color="#38bdf8",
+        description="Puterea netă scoasă din pachet: sarcina minus aportul solar. Pozitivă la descărcare, negativă la încărcare.",
     ),
     Signal(
         key="cell_voltage_min_v",
@@ -193,6 +194,7 @@ CATALOG: tuple[Signal, ...] = (
         group="energy",
         decimals=0,
         min=0,
+        description="Energie intrată în pachet de la începutul sesiunii: frână regenerativă și surplus solar.",
     ),
     Signal(
         key="energy_solar_wh",
@@ -276,6 +278,7 @@ CATALOG: tuple[Signal, ...] = (
         min=-5000,
         max=14000,
         color="#60a5fa",
+        description="Puterea cerută de motor (sarcina), înainte de scăderea aportului solar. Negativă la regenerare.",
     ),
     Signal(
         key="motor_rpm",

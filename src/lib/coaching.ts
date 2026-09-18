@@ -1,4 +1,5 @@
 import type { AnalyticsSnapshot } from './analytics'
+import { formatNumber } from './format'
 
 /**
  * Traducerea statisticilor în instrucțiuni pentru pilot.
@@ -39,6 +40,12 @@ export type CoachingOptions = {
   remainingDistanceKm?: number | null
 }
 
+/**
+ * Peste atâta din aportul solar, sarcina mașinii nu mai este acoperită de
+ * panouri: la 1,5 pachetul dă jumătate din cât dau panourile. Se aplică
+ * sarcinii (pachet + solar), nu consumului din pachet, care este deja net.
+ */
+const SOLAR_DEFICIT_RATIO = 1.5
 /** Peste atâta procent din consum dus în aerodinamică, viteza este problema. */
 const AERO_DOMINANT_PCT = 60
 /** Sub acest scor, pedala este nervoasă. */
@@ -58,15 +65,16 @@ const thermalLabels: Record<string, string> = {
 }
 
 function round(value: number, decimals = 1): string {
-  return value.toFixed(decimals).replace('.', ',')
+  return formatNumber(value, decimals)
 }
 
 /**
- * Consumul pe care aportul solar îl susține la viteza actuală, în Wh/km.
+ * Aportul solar pe kilometru la viteza actuală, în Wh/km.
  *
- * `P_solar [W] / v [km/h] = Wh/km`: la 900 W și 45 km/h, panourile acoperă
- * 20 Wh/km. Peste atât, diferența iese din pachet. Este pragul de echilibru al
- * unei curse solare și nu depinde de nicio setare de strategie.
+ * `P_solar [W] / v [km/h] = Wh/km`: la 900 W și 45 km/h, panourile aduc
+ * 20 Wh/km. Este partea din sarcină pe care o plătește soarele; restul iese
+ * din pachet și este exact consumul specific afișat (`energy_consumed_wh` e
+ * deja net de solar). Sarcina totală este deci `consum din pachet + aport`.
  */
 export function sustainableWhPerKm(
   solarW: number | null,
@@ -130,19 +138,25 @@ export function buildAdvice(
     })
   }
 
-  // --- 3. consum peste ce produc panourile ---------------------------------
+  // --- 3. sarcina depășește cu mult ce produc panourile --------------------
+  // `consumption` este ce iese din pachet, adică sarcina fără partea plătită
+  // de soare. Sarcina întreagă este suma celor două; pragul se pune pe ea.
+  const load =
+    consumption !== null && sustainable !== null
+      ? consumption + sustainable
+      : null
   const deficitRule =
-    consumption !== null &&
+    load !== null &&
     sustainable !== null &&
-    consumption > sustainable * 1.5
+    load > sustainable * SOLAR_DEFICIT_RATIO
 
   if (deficitRule) {
-    const excess = ((consumption as number) / (sustainable as number) - 1) * 100
+    const excess = ((load as number) / (sustainable as number) - 1) * 100
     advice.push({
       id: 'energy-deficit',
       level: 'warning',
       title: 'Consumi mai mult decât produc panourile',
-      detail: `${round(consumption as number)} Wh/km față de ${round(sustainable as number)} Wh/km susținuți de soare — cu ${round(excess, 0)} % peste echilibru.`,
+      detail: `Sarcina este ${round(load as number)} Wh/km, din care soarele aduce ${round(sustainable as number)} Wh/km și pachetul ${round(consumption as number)} Wh/km — cu ${round(excess, 0)} % peste echilibru.`,
       action:
         'Condu mai economic: ridică piciorul pe porțiunile drepte și lasă mașina să ruleze liber înainte de viraje.',
     })
@@ -187,7 +201,10 @@ export function buildAdvice(
       id: 'regen-unused',
       level: 'warning',
       title: 'Frânezi fără să recuperezi',
-      detail: `${snapshot.totals.harshBrakeCount} frânări bruște, dar doar ${snapshot.regenRatioPct === null ? '0' : round(snapshot.regenRatioPct)} % din energie s-a întors în pachet.`,
+      detail:
+        snapshot.regenRatioPct === null
+          ? `${snapshot.totals.harshBrakeCount} frânări bruște, fără nicio energie măsurată înapoi în pachet.`
+          : `${snapshot.totals.harshBrakeCount} frânări bruște, dar doar ${round(snapshot.regenRatioPct)} % din energie s-a întors în pachet.`,
       action:
         'Ridică piciorul mai devreme și lasă frâna regenerativă să încetinească mașina; frâna mecanică transformă energia în căldură, definitiv.',
     })
@@ -213,12 +230,15 @@ export function buildAdvice(
     if (trend.timeToCritS === null || trend.timeToCritS > THERMAL_URGENT_S) {
       continue
     }
+    // `timeToCritS` există doar cu valoare și rată calculate; cifrele de mai
+    // jos nu pot lipsi, dar nici nu se inventează cu zero dacă ar lipsi.
+    if (trend.valueC === null || trend.ratePerMinC === null) continue
     const minutes = Math.max(1, Math.round(trend.timeToCritS / 60))
     advice.push({
       id: `thermal-${trend.key}`,
       level: 'warning',
       title: `${thermalLabels[trend.key] ?? trend.key} se apropie de limită`,
-      detail: `${round(trend.valueC ?? 0)} °C, în creștere cu ${round(trend.ratePerMinC ?? 0, 2)} °C/min — pragul critic în ~${minutes} min.`,
+      detail: `${round(trend.valueC)} °C, în creștere cu ${round(trend.ratePerMinC, 2)} °C/min — pragul critic în ~${minutes} min.`,
       action:
         'Redu puterea cerută acum. Controllerul limitează singur când atinge pragul, și o face brusc.',
     })
@@ -233,7 +253,7 @@ export function buildAdvice(
       id: 'drivetrain-loss',
       level: 'info',
       title: 'Pierderi mari între pachet și motor',
-      detail: `Doar ${round(snapshot.drivetrainEfficiencyPct, 0)} % din puterea scoasă din baterie ajunge la motor.`,
+      detail: `Doar ${round(snapshot.drivetrainEfficiencyPct, 0)} % din puterea de pe magistrală (pachet plus solar) ajunge la motor.`,
       action:
         'De verificat la prima oprire: conectori calzi, cabluri de putere, temperatura invertorului.',
     })
@@ -243,16 +263,18 @@ export function buildAdvice(
 
   // --- nimic de corectat ----------------------------------------------------
   if (consumption !== null) {
-    const reference = sustainable ?? target
+    let detail = `Consum din pachet ${round(consumption)} Wh/km, fără abateri detectate.`
+    if (sustainable !== null) {
+      detail = `Consum din pachet ${round(consumption)} Wh/km; soarele aduce ${round(sustainable)} Wh/km din sarcina de ${round(consumption + sustainable)} Wh/km.`
+    } else if (target !== null) {
+      detail = `Consum din pachet ${round(consumption)} Wh/km, sub ținta de ${round(target)} Wh/km.`
+    }
     return [
       {
         id: 'on-target',
         level: 'good',
         title: 'Ritm eficient — menține-l',
-        detail:
-          reference === null
-            ? `Consum ${round(consumption)} Wh/km, fără abateri detectate.`
-            : `Consum ${round(consumption)} Wh/km, sub pragul de echilibru de ${round(reference)} Wh/km.`,
+        detail,
         action: 'Nu schimba nimic: aceeași viteză, aceeași pedală.',
       },
     ]

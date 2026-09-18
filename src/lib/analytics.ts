@@ -49,7 +49,20 @@ import {
  * rămân `null` — interfața le arată ca „—", niciodată ca zero, fiindcă „0
  * Wh/km" ar fi o afirmație falsă, nu o lipsă de informație.
  *
- * ## Contoare față de integrare
+ * ## Puterea din pachet față de sarcină
+
+Mașina raportează două puteri diferite și ușor de confundat:
+
+- `battery_power_w` — ce iese din **pachet** (net): sarcina minus aportul solar,
+  pentru că panourile alimentează direct magistrala. Pozitivă la descărcare.
+- `motor_power_w` — ce cere **sarcina** (brut), fără nicio scădere.
+
+Consumul specific, autonomia și timpul până la golire se referă la pachet.
+Bilanțul de putere este pur și simplu `−battery_power_w`, iar „cât acoperă
+soarele" se raportează la sarcină. Amestecarea celor două ar scădea solarul de
+două ori — greșeala pe care `packPowerW` și `loadPowerW` o fac imposibilă.
+
+## Contoare față de integrare
  *
  * Când mașina trimite contoare cumulate (`energy_consumed_wh`, `distance_km`),
  * ele sunt sursa de adevăr: sunt calculate pe vehicul, la frecvența completă a
@@ -98,38 +111,78 @@ export type ThermalTrend = {
   timeToCritS: number | null
 }
 
+/**
+ * De unde a venit viteza la sol folosită de dashboard.
+ *
+ * `raportată` este `vehicle_speed_kph`, calculată de firmware din turație cu
+ * circumferința configurată pe placă. `turație` este aceeași deducție refăcută
+ * aici din `motor_rpm`, cu Ø 548 mm — folosită când placa nu trimite viteza.
+ * Câmpul spune ce ipoteză de roată a intrat în distanță și în consumul specific.
+ */
+export type SpeedSource = 'raportată' | 'turație' | null
+
 /** Ce citește interfața. Fiecare câmp `null` înseamnă „nu se poate calcula". */
 export type AnalyticsSnapshot = {
   totals: AnalyticsTotals
   /** Datele proaspete există chiar acum. */
   live: boolean
 
+  /**
+   * Media vitezei pe ultimele două minute de eșantioane, inclusiv cele cu
+   * mașina oprită. Nu este media sesiunii — aceea este `distanță / timp` și
+   * se calculează pe stint, în `lib/driver-profiles.ts`.
+   */
   averageSpeedKph: number | null
   /**
-   * Viteza dedusă din turația motorului și circumferința roții (Ø 548 mm).
-   * A doua cale către viteză, independentă de GNSS; se confruntă cu cea
-   * raportată în panoul de verificare a mapării.
+   * Viteza dedusă în browser din turația motorului și circumferința roții
+   * (Ø 548 mm). Firmware-ul face aceeași deducție pentru `vehicle_speed_kph`,
+   * cu circumferința configurată pe placă; panoul de verificare a mapării le
+   * pune față în față, ca o roată declarată greșit să se vadă.
    */
   wheelSpeedKph: number | null
+  /**
+   * Viteza la sol folosită la acumulare și afișare: cea raportată sau, în
+   * lipsa ei, cea din turație. Aceeași regulă ca în `groundSpeed`.
+   */
+  groundSpeedKph: number | null
+  /** Care dintre cele două surse a dat `groundSpeedKph`. */
+  speedSource: SpeedSource
   /** Consumul specific pe toată sesiunea. */
   whPerKm: number | null
   /** Consumul specific pe fereastra glisantă — reacționează la stilul de condus. */
   recentWhPerKm: number | null
   kmPerKwh: number | null
 
-  /** Puterea scoasă din pachet acum, pozitivă la descărcare. */
-  consumptionW: number | null
+  /**
+   * Puterea scoasă din pachet acum (netă, după aportul solar), pozitivă la
+   * descărcare. `battery_power_w` sau, în lipsa lui, `U · I` de la BMS.
+   */
+  packPowerW: number | null
+  /**
+   * Puterea cerută de sarcină acum (brută): motorul sau, în lipsa lui,
+   * `pachet + solar`.
+   */
+  loadPowerW: number | null
   /** Puterea recuperată acum de frâna regenerativă. */
   regenW: number | null
   solarW: number | null
   motorW: number | null
-  /** Aport solar minus consum. Pozitiv = pachetul se încarcă în mers. */
+  /**
+   * Bilanțul de putere al pachetului: `−P_pachet`, adică `P_solar − P_sarcină`.
+   * Pozitiv = pachetul se încarcă în mers.
+   */
   netPowerW: number | null
-  peakConsumptionW: number | null
+  /** Percentila 95 a puterii din pachet pe ultimele două minute. */
+  peakPackPowerW: number | null
 
   regenRatioPct: number | null
+  /** Cât din sarcină a acoperit soarele, în %. Raportat la sarcină, nu la pachet. */
   solarFractionPct: number | null
-  energyBalanceWh: number
+  /**
+   * Bilanțul pachetului pe sesiune: energia intrată (regenerare și surplus
+   * solar) minus energia ieșită. Pozitiv = pachetul a câștigat energie.
+   */
+  packBalanceWh: number
   drivetrainEfficiencyPct: number | null
 
   socPct: number | null
@@ -165,6 +218,11 @@ const MAX_GAP_MS = 3000
 /** Praguri pentru numărarea manevrelor bruște, în m/s². */
 const HARSH_ACCEL_MS2 = 1.2
 const HARSH_BRAKE_MS2 = 2.0
+/**
+ * Sub această fracțiune din prag manevra s-a încheiat. Fără histereză, o
+ * frânare de două secunde s-ar număra de zece ori la 5 Hz — nu ca un eveniment.
+ */
+const HARSH_RELEASE_FRACTION = 0.5
 /** Fereastra pe care se calculează panta, în milisecunde. */
 const GRADE_WINDOW_MS = 30_000
 /** Sub această diferență, variația de altitudine este zgomot de receptor. */
@@ -232,10 +290,12 @@ export class TelemetryAnalytics {
     motor: number | null
     regen: number | null
   } = { battery: null, solar: null, motor: null, regen: null }
+  /** Manevra bruscă în curs, ca o frânare lungă să se numere o singură dată. */
+  private harshState: 'none' | 'accel' | 'brake' = 'none'
 
   private speeds: Series = []
   private throttle: number[] = []
-  private consumption: Series = []
+  private packPowerSeries: Series = []
   private socSeries: Series = []
   private distanceSeries: Series = []
   private energySeries: Series = []
@@ -263,9 +323,10 @@ export class TelemetryAnalytics {
     this.lastAltitudeM = null
     this.lastFresh = false
     this.lastPowers = { battery: null, solar: null, motor: null, regen: null }
+    this.harshState = 'none'
     this.speeds = []
     this.throttle = []
-    this.consumption = []
+    this.packPowerSeries = []
     this.socSeries = []
     this.distanceSeries = []
     this.energySeries = []
@@ -279,7 +340,7 @@ export class TelemetryAnalytics {
     if (!Number.isFinite(timeMs)) return
     this.lastQuality = quality
 
-    const speedKph = fresh(quality, 'vehicle_speed_kph')
+    const { kph: speedKph } = this.groundSpeed(quality)
     const batteryW = fresh(quality, 'battery_power_w')
     const motorW = fresh(quality, 'motor_power_w')
     const solarW = fresh(quality, 'solar_power_w')
@@ -323,8 +384,8 @@ export class TelemetryAnalytics {
       if (this.throttle.length > WINDOW) this.throttle.shift()
     }
 
-    const load = this.consumptionW(quality)
-    if (load !== null) push(this.consumption, timeMs, load)
+    const pack = this.packPowerW(quality)
+    if (pack !== null) push(this.packPowerSeries, timeMs, pack)
 
     if (voltage !== null && current !== null) {
       this.packSamples.push({ currentA: current, voltageV: voltage })
@@ -350,6 +411,31 @@ export class TelemetryAnalytics {
   }
 
   // --- acumulare ---------------------------------------------------------
+
+  /**
+   * Viteza la sol și sursa ei.
+   *
+   * Placa trimite `vehicle_speed_kph` calculată din turație cu circumferința
+   * ei; când nu o trimite deloc, aceeași formulă se aplică aici pe `motor_rpm`
+   * cu roata de 548 mm. Fără una dintre ele nu se acumulează distanță, deci
+   * nici Wh/km, nici autonomie.
+   *
+   * **Ordine, nu medie.** Media dintre o valoare absentă și una prezentă nu
+   * înseamnă nimic, iar media dintre două surse ar ascunde care a răspuns.
+   * Prima sursă câștigă, iar `source` spune care a fost.
+   */
+  private groundSpeed(quality: Record<string, QualityEntry | undefined>): {
+    kph: number | null
+    source: SpeedSource
+  } {
+    const reported = fresh(quality, 'vehicle_speed_kph')
+    if (reported !== null) return { kph: reported, source: 'raportată' }
+
+    const fromRpm = speedKphFromRpm(fresh(quality, 'motor_rpm'), this.vehicle)
+    if (fromRpm !== null) return { kph: fromRpm, source: 'turație' }
+
+    return { kph: null, source: null }
+  }
 
   private accumulateDistance(
     quality: Record<string, QualityEntry | undefined>,
@@ -519,6 +605,12 @@ export class TelemetryAnalytics {
     }
   }
 
+  /**
+   * Numără **manevre**, nu eșantioane: o frânare bruscă se contorizează o dată
+   * la intrarea peste prag și se închide când accelerația a coborât sub
+   * jumătate din el. Fără această histereză, la 5 Hz fiecare secundă de
+   * frânare ar valora cinci „frânări bruște".
+   */
   private accumulateHarshEvents(
     speedKph: number | null,
     dtS: number | null,
@@ -526,29 +618,75 @@ export class TelemetryAnalytics {
     if (speedKph === null || dtS === null || this.lastSpeedMs === null) return
 
     const accel = (speedKph / 3.6 - this.lastSpeedMs) / dtS
-    if (accel > HARSH_ACCEL_MS2) this.totalsState.harshAccelCount += 1
-    else if (accel < -HARSH_BRAKE_MS2) this.totalsState.harshBrakeCount += 1
+
+    if (this.harshState === 'accel') {
+      if (accel < HARSH_ACCEL_MS2 * HARSH_RELEASE_FRACTION) {
+        this.harshState = 'none'
+      }
+    } else if (this.harshState === 'brake') {
+      if (accel > -HARSH_BRAKE_MS2 * HARSH_RELEASE_FRACTION) {
+        this.harshState = 'none'
+      }
+    }
+
+    if (this.harshState !== 'none') return
+
+    if (accel > HARSH_ACCEL_MS2) {
+      this.totalsState.harshAccelCount += 1
+      this.harshState = 'accel'
+    } else if (accel < -HARSH_BRAKE_MS2) {
+      this.totalsState.harshBrakeCount += 1
+      this.harshState = 'brake'
+    }
   }
 
   // --- mărimi instantanee -----------------------------------------------
 
   /**
-   * Puterea scoasă din pachet acum. Preferăm semnalul dedicat; dacă lipsește,
-   * îl reconstruim din tensiune și curent, care vin de la același BMS.
+   * Puterea scoasă din pachet acum (netă). Preferăm semnalul dedicat; dacă
+   * lipsește, o reconstruim din tensiune și curent, care vin de la același BMS.
+   *
+   * Fără nicio rezervă pe puterea motorului: aceea este sarcina, nu pachetul,
+   * și pusă aici ar face autonomia și timpul până la golire să ignore soarele.
    */
-  private consumptionW(
+  private packPowerW(
     quality: Record<string, QualityEntry | undefined>,
   ): number | null {
     const battery = fresh(quality, 'battery_power_w')
     if (battery !== null) return battery
 
-    const derived = packPowerW(
+    return packPowerW(
       fresh(quality, 'battery_voltage_v'),
       fresh(quality, 'battery_current_a'),
     )
-    if (derived !== null) return derived
+  }
 
-    return fresh(quality, 'motor_power_w')
+  /**
+   * Puterea cerută de sarcină acum (brută). Motorul o raportează direct; altfel
+   * este ce iese din pachet plus ce vine de la panouri — magistrala nu are
+   * altă sursă.
+   */
+  private loadPowerW(
+    quality: Record<string, QualityEntry | undefined>,
+  ): number | null {
+    const motor = fresh(quality, 'motor_power_w')
+    if (motor !== null) return motor
+
+    const pack = this.packPowerW(quality)
+    const solar = fresh(quality, 'solar_power_w')
+    if (pack === null || solar === null) return null
+    return pack + solar
+  }
+
+  /**
+   * Energia cerută de sarcină pe sesiune, în Wh: numitorul pentru „cât a
+   * acoperit soarele". Energia motorului o măsoară direct; fără ea, sarcina
+   * este ce a ieșit din pachet plus ce au dat panourile.
+   */
+  private loadEnergyWh(): number {
+    const totals = this.totalsState
+    if (totals.motorEnergyWh > 0) return totals.motorEnergyWh
+    return totals.energyConsumedWh + totals.energySolarWh
   }
 
   /**
@@ -614,12 +752,13 @@ export class TelemetryAnalytics {
       (entry) => entry?.state === 'valid',
     )
 
-    const speedKph = fresh(quality, 'vehicle_speed_kph')
+    const { kph: speedKph, source: speedSource } = this.groundSpeed(quality)
     const speedMs = speedKph === null ? null : speedKph / 3.6
     const socPct = fresh(quality, 'battery_soc_pct')
     const solarW = fresh(quality, 'solar_power_w')
     const motorW = fresh(quality, 'motor_power_w')
-    const consumption = this.consumptionW(quality)
+    const pack = this.packPowerW(quality)
+    const load = this.loadPowerW(quality)
     const regen = this.regenW(quality)
 
     const whPerKm = specificConsumptionWhPerKm(
@@ -628,7 +767,9 @@ export class TelemetryAnalytics {
     )
     const recent = this.recentWhPerKm()
     const remaining = remainingEnergyWh(socPct, this.vehicle.packEnergyWh)
-    const net = netPowerW(solarW, consumption)
+    // Bilanțul pachetului este chiar `−P_pachet`: solarul e deja în el. Doar
+    // fără putere de pachet îl reconstruim din solar și sarcină.
+    const net = pack !== null ? -pack : netPowerW(solarW, load)
 
     const gradeFraction = this.currentGrade()
 
@@ -639,19 +780,22 @@ export class TelemetryAnalytics {
       averageSpeedKph:
         this.speeds.length > 0 ? mean(this.speeds.map(([, v]) => v)) : null,
       wheelSpeedKph: speedKphFromRpm(fresh(quality, 'motor_rpm'), this.vehicle),
+      groundSpeedKph: speedKph,
+      speedSource,
       whPerKm,
       recentWhPerKm: recent,
       kmPerKwh: efficiencyKmPerKwh(totals.distanceKm, totals.energyConsumedWh),
 
-      consumptionW: consumption,
+      packPowerW: pack,
+      loadPowerW: load,
       regenW: regen,
       solarW,
       motorW,
       netPowerW: net,
-      peakConsumptionW:
-        this.consumption.length >= 10
+      peakPackPowerW:
+        this.packPowerSeries.length >= 10
           ? percentile(
-              this.consumption.map(([, value]) => value),
+              this.packPowerSeries.map(([, value]) => value),
               0.95,
             )
           : null,
@@ -662,15 +806,15 @@ export class TelemetryAnalytics {
       ),
       solarFractionPct: solarFractionPct(
         totals.energySolarWh,
-        totals.energyConsumedWh,
+        this.loadEnergyWh(),
       ),
-      energyBalanceWh:
-        totals.energySolarWh + totals.energyRegenWh - totals.energyConsumedWh,
+      packBalanceWh: totals.energyRegenWh - totals.energyConsumedWh,
       // Puterea de pe magistrală, nu cea din pachet: panourile alimentează
-      // direct magistrala, iar motorul trage din suma lor.
+      // direct magistrala, iar motorul trage din suma lor. Fără solar valid nu
+      // există magistrală de calculat — nu presupunem zero.
       drivetrainEfficiencyPct: drivetrainEfficiencyPct(
         motorW,
-        consumption === null ? null : consumption + (solarW ?? 0),
+        pack === null || solarW === null ? null : pack + solarW,
       ),
 
       socPct,
@@ -678,7 +822,7 @@ export class TelemetryAnalytics {
       // Autonomia se sprijină pe consumul recent, nu pe media sesiunii: dacă
       // pilotul tocmai a încetinit, cifra trebuie să reflecte decizia lui.
       rangeKm: rangeKm(remaining, recent ?? whPerKm),
-      timeToEmptyS: timeToEmptyS(remaining, net === null ? null : -net),
+      timeToEmptyS: timeToEmptyS(remaining, pack),
       socRatePctPerMin:
         this.socSeries.length >= 10 ? ratePerMinute(this.socSeries) : null,
       projectedSoc30MinPct: projectedSocPct(
@@ -692,8 +836,13 @@ export class TelemetryAnalytics {
       ),
       packResistanceOhm: packInternalResistanceOhm(this.packSamples),
 
-      roadLoadW: roadLoadW(speedMs, gradeFraction ?? 0, this.vehicle),
-      aeroSharePct: aeroSharePct(speedMs),
+      // Fără pantă validă nu există rezistență la înaintare de afișat: „drum
+      // plat" pus în locul lui „nu știu" ar fi o afirmație, nu o lipsă.
+      roadLoadW:
+        gradeFraction === null
+          ? null
+          : roadLoadW(speedMs, gradeFraction, this.vehicle),
+      aeroSharePct: aeroSharePct(speedMs, this.vehicle),
       economicSpeedKph: economicSpeedKph(this.vehicle),
       gradePct: gradeFraction === null ? null : gradeFraction * 100,
       altitudeM: fresh(quality, 'gps_altitude_m'),

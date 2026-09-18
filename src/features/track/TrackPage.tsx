@@ -4,6 +4,7 @@ import { ElevationProfileChart } from '../../components/ElevationProfile'
 import { GpsMappingPanel } from '../../components/GpsMappingPanel'
 import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { SpeedCard } from '../../components/SpeedCard'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap, type TrackColorBy } from '../../components/TrackMap'
 import { TrackPositionPanel } from '../../components/TrackPositionPanel'
@@ -21,7 +22,7 @@ export function TrackPage() {
         className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Indicatori de traseu"
       >
-        <MetricCard signalKey="vehicle_speed_kph" />
+        <SpeedCard />
         <MetricCard signalKey="lap_number" />
         <MetricCard signalKey="distance_km" />
         <MetricCard signalKey="gps_altitude_m" />
@@ -86,15 +87,14 @@ export function TrackPage() {
 
       <section className="mt-4">
         {/*
-          `gps_speed_kph` a fost scos din serii: nu există nici în catalogul
-          serverului, nici printre semnalele derivate local, deci graficul cerea
-          o serie pe care nu o produce nimeni — o legendă fără linie.
-
-          Nici nu era de adăugat. Viteza mașinii *este* cea raportată de GNSS:
-          `vehicle_speed_kph` vine din `gps.speed_kmh`, deci a doua serie ar fi
-          desenat aceleași puncte sub alt nume.
+          `vehicle_speed_kph` este viteza calculată de firmware din turație;
+          `gps_speed_kph` există în catalog doar pentru un eventual receptor
+          GNSS și rămâne „—" cât timp mașina nu are unul.
         */}
-        <Panel title="Viteză pe traseu" subtitle="Ultimele 7 minute">
+        <Panel
+          title="Viteză și putere motor pe traseu"
+          subtitle="Ultimele 7 minute"
+        >
           <TelemetryChart
             signalKeys={['vehicle_speed_kph', 'motor_power_w']}
             height={240}

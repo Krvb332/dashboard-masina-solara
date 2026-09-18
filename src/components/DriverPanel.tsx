@@ -291,7 +291,7 @@ function StintTable() {
         <thead>
           <tr className="text-left text-xs tracking-wide text-zinc-500 uppercase">
             <th className="pb-2 font-medium">Pilot</th>
-            <th className="pb-2 font-medium">Durată</th>
+            <th className="pb-2 font-medium">Timp cu date</th>
             <th className="pb-2 font-medium">Distanță</th>
             <th className="pb-2 font-medium">Energie</th>
             <th className="pb-2 font-medium">Consum</th>

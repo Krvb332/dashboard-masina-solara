@@ -3,6 +3,7 @@ import { anchorStationary } from '../lib/gps'
 import { collectFixes } from '../lib/gps-buffer'
 import { matchRun, type MatchedFix } from '../lib/map-matching'
 import { telemetryBuffer } from '../lib/telemetry-buffer'
+import { speedKphFromRpm } from '../lib/telemetry-math'
 import {
   mixColor,
   niceStep,
@@ -169,9 +170,7 @@ function render(
     return
   }
 
-  const speedByTime = new Map(
-    telemetryBuffer.toSeries('vehicle_speed_kph', undefined, TRAIL_POINTS),
-  )
+  const speedByTime = groundSpeedByTime()
 
   if (showRaw) drawRawTrail(context, frame, run.fixes)
   drawTrail(context, frame, run.fixes, speedByTime, colorBy)
@@ -182,6 +181,25 @@ function render(
   drawCurrent(context, frame, last)
 
   if (!last.match.onTrack) drawOffTrack(context, width)
+}
+
+/**
+ * Viteza pe fiecare eșantion, pentru colorarea urmei: cea raportată de placă
+ * sau, când lipsește cu totul, cea dedusă din turație × Ø 548 mm — aceeași
+ * regulă ca peste tot în dashboard.
+ */
+function groundSpeedByTime(): Map<number, number> {
+  const reported = telemetryBuffer.toSeries(
+    'vehicle_speed_kph',
+    undefined,
+    TRAIL_POINTS,
+  )
+  if (reported.length > 0) return new Map(reported)
+
+  const rpm = telemetryBuffer.toSeries('motor_rpm', undefined, TRAIL_POINTS)
+  return new Map(
+    rpm.map(([time, value]) => [time, speedKphFromRpm(value) ?? Number.NaN]),
+  )
 }
 
 /** Linia mediană a circuitului, desenată o dată, din referință. */

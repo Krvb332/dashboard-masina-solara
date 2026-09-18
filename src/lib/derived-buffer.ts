@@ -15,7 +15,7 @@ import type { SignalDefinition } from '../schemas/telemetry'
  * componentă `TelemetryChart` folosită pentru semnalele reale.
  */
 
-/** 1800 la 5 Hz = șase minute de istoric derivat. */
+/** 1800 la 2 Hz (ritmul de publicare al snapshot-urilor) = 15 minute de istoric derivat. */
 export const DERIVED_CAPACITY = 1800
 
 export const derivedBuffer = new TelemetryRingBuffer(DERIVED_CAPACITY)
@@ -36,11 +36,11 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
   }),
   calc_consumption_w: definition({
     key: 'calc_consumption_w',
-    label: 'Consum instantaneu',
+    label: 'Putere din pachet',
     unit: 'W',
     decimals: 0,
     color: '#38bdf8',
-    description: 'Puterea scoasă din pachet acum.',
+    description: 'Puterea netă scoasă din pachet acum, după aportul solar.',
   }),
   calc_regen_w: definition({
     key: 'calc_regen_w',
@@ -57,7 +57,7 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
     decimals: 0,
     color: '#fbbf24',
     description:
-      'Aport solar minus consum. Pozitiv = pachetul se încarcă în mers.',
+      'Aport solar minus sarcină, adică −P_baterie. Pozitiv = pachetul se încarcă în mers.',
   }),
   calc_road_load_w: definition({
     key: 'calc_road_load_w',
@@ -83,12 +83,12 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
   }),
   calc_energy_balance_wh: definition({
     key: 'calc_energy_balance_wh',
-    label: 'Bilanț energetic',
+    label: 'Bilanț pachet',
     unit: 'Wh',
     decimals: 0,
     color: '#fb923c',
     description:
-      'Solar plus regenerat minus consumat, de la începutul sesiunii.',
+      'Energia intrată în pachet minus cea ieșită, de la începutul sesiunii.',
   }),
   calc_drivetrain_eff_pct: definition({
     key: 'calc_drivetrain_eff_pct',
@@ -103,6 +103,17 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
     unit: '%',
     decimals: 1,
     color: '#94a3b8',
+  }),
+  calc_ground_speed_kph: definition({
+    key: 'calc_ground_speed_kph',
+    label: 'Viteză',
+    unit: 'km/h',
+    decimals: 1,
+    min: 0,
+    max: 140,
+    color: '#60a5fa',
+    description:
+      'Viteza la sol folosită de dashboard: raportată de placă sau, în lipsa ei, dedusă din turație × Ø 548 mm.',
   }),
   calc_wheel_speed_kph: definition({
     key: 'calc_wheel_speed_kph',
@@ -155,7 +166,7 @@ export function pushDerived(timeMs: number, snapshot: AnalyticsSnapshot): void {
   }
 
   add('calc_wh_per_km', snapshot.recentWhPerKm ?? snapshot.whPerKm)
-  add('calc_consumption_w', snapshot.consumptionW)
+  add('calc_consumption_w', snapshot.packPowerW)
   add('calc_regen_w', snapshot.regenW)
   add('calc_net_power_w', snapshot.netPowerW)
   add('calc_road_load_w', snapshot.roadLoadW)
@@ -164,11 +175,12 @@ export function pushDerived(timeMs: number, snapshot: AnalyticsSnapshot): void {
   add('calc_drivetrain_eff_pct', snapshot.drivetrainEfficiencyPct)
   add('calc_grade_pct', snapshot.gradePct)
   add('calc_wheel_speed_kph', snapshot.wheelSpeedKph)
+  add('calc_ground_speed_kph', snapshot.groundSpeedKph)
 
   // Bilanțul energetic există chiar și la zero: „nu s-a consumat nimic" este o
   // afirmație validă despre o sesiune abia pornită.
   if (snapshot.totals.samples > 0) {
-    add('calc_energy_balance_wh', snapshot.energyBalanceWh)
+    add('calc_energy_balance_wh', snapshot.packBalanceWh)
   }
 
   if (Object.keys(values).length === 0) return

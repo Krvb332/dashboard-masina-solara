@@ -8,6 +8,7 @@ import { useTick } from '../hooks/useTick'
 import { fetchHealth } from '../lib/api'
 import { formatAge, formatNumber, formatSignal, NO_VALUE } from '../lib/format'
 import { summarizeSources } from '../lib/sensor-sources'
+import type { QualityState } from '../schemas/telemetry'
 import { useTelemetryStore } from '../stores/telemetry-store'
 
 /**
@@ -22,17 +23,24 @@ import { useTelemetryStore } from '../stores/telemetry-store'
 /**
  * Temperatura plăcii Teensy.
  *
- * Cheia este `temp_teensy_c`, nu `teensy_temp_c`. Toate temperaturile din
- * catalog urmează același tipar — `temp_ambient_c`, `temp_bms_mos_c` — pentru
- * că serverul le construiește din numele senzorului trimis de firmware, iar
- * placa trimite `teensy`. Cu numele inversat, cardul afișa „—" la nesfârșit, iar
- * asta se citea ca „firmware-ul nu trimite încă valoarea". O trimite de la bun
- * început, în același mesaj cu temperaturile bateriei.
+ * Serverul live o trimite ca `temp_teensy_c`: construiește cheile de
+ * temperatură din numele senzorului (`temp_ambient_c`, `temp_teensy_c`).
+ * Catalogul de referință din depozit și simulatorul o numesc `teensy_temp_c`.
+ * Cardul alege cheia care există în catalogul primit, ca să nu afișeze „—" la
+ * nesfârșit cu niciunul dintre servere — o absență care se citea greșit ca
+ * „firmware-ul nu trimite încă valoarea".
  */
-const BOARD_TEMP_SIGNAL = 'temp_teensy_c'
+const BOARD_TEMP_SIGNALS = ['temp_teensy_c', 'teensy_temp_c'] as const
 
 /** Peste atât, „conectat" înseamnă de fapt „conectat, dar mut". */
 const SILENT_LINK_MS = 3000
+
+const qualityLabels: Record<QualityState, string> = {
+  valid: 'valid',
+  stale: 'învechit',
+  unavailable: 'indisponibil',
+  sensor_error: 'eroare senzor',
+}
 
 export function TeensyStatsPanel() {
   const stats = useStreamStats()
@@ -41,7 +49,11 @@ export function TeensyStatsPanel() {
   const catalog = useTelemetryStore((state) => state.catalog)
   const latest = useTelemetryStore((state) => state.latest)
   const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
-  const board = useSignal(BOARD_TEMP_SIGNAL)
+  const catalogByKey = useTelemetryStore((state) => state.catalogByKey)
+  const boardKey =
+    BOARD_TEMP_SIGNALS.find((key) => catalogByKey[key] !== undefined) ??
+    BOARD_TEMP_SIGNALS[0]
+  const board = useSignal(boardKey)
   const now = useTick(1000)
 
   // Starea ingestiei de pe server (MQTT/HTTP) nu vine pe WebSocket, dar spune
@@ -85,7 +97,7 @@ export function TeensyStatsPanel() {
       <div className="grid gap-2 @md:grid-cols-2">
         <Stat
           icon={Gauge}
-          label="Viteză de transfer"
+          label="Ritm cadre"
           value={
             stats.effective_hz > 0
               ? `${formatNumber(stats.effective_hz, 1)} Hz`
@@ -120,13 +132,13 @@ export function TeensyStatsPanel() {
               ? 'se așteaptă semnalul din firmware'
               : board.fresh
                 ? 'senzor de pe placă'
-                : `fără valoare proaspătă (${board.state})`
+                : `fără valoare proaspătă (${qualityLabels[board.state]})`
           }
         />
 
         <Stat
           icon={Cpu}
-          label="Senzori conectați"
+          label="Surse active"
           value={
             summary.totalSources === 0
               ? NO_VALUE

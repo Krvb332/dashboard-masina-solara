@@ -38,6 +38,13 @@ const KEY_SHAPE = /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/
 /** Prefixul mărimilor calculate în browser. Nu vin de la server, deci nu se caută în catalog. */
 const DERIVED_PREFIX = 'calc_'
 
+/**
+ * Chei trimise de serverul live sub alt nume decât în catalogul de referință.
+ * Panourile care le cer le rezolvă la rulare din catalogul primit, deci nu
+ * sunt greșeli de scriere.
+ */
+const LIVE_ALIASES = new Map([['temp_teensy_c', 'teensy_temp_c']])
+
 /** Fișiere care declară semnale fictive: testele și fixture-urile lor. */
 function isExcluded(path) {
   return (
@@ -72,7 +79,13 @@ const PATTERNS = [
     name: 'THERMAL_KEYS',
     regex: /\bkey:\s*['"]([a-zA-Z0-9_]+)['"]\s*,\s*warn:/g,
   },
+  // Constante de tipul `const X_SIGNAL = 'cheie'` pasate mai departe la
+  // `useSignal(X_SIGNAL)`: literalul nu apare în apel, deci trebuie prins aici.
+  { name: 'SIGNAL const', regex: /_SIGNAL\s*=\s*['"]([a-zA-Z0-9_]+)['"]/g },
 ]
+
+/** `const X_SIGNALS = ['a', 'b']` — lista de chei încercate pe rând. */
+const SIGNALS_ARRAY_PATTERN = /_SIGNALS\s*=\s*\[([^\]]*)\]/g
 
 /** `signalKeys={[...]}` conține o listă, nu o singură cheie. */
 const ARRAY_PATTERN = /signalKeys=\{\[([\s\S]*?)\]\}/g
@@ -105,6 +118,15 @@ function collectReferences(files) {
       let quoted
       while ((quoted = QUOTED.exec(block[1])) !== null) {
         record(quoted[1], file, 'signalKeys')
+      }
+    }
+
+    SIGNALS_ARRAY_PATTERN.lastIndex = 0
+    while ((block = SIGNALS_ARRAY_PATTERN.exec(source)) !== null) {
+      QUOTED.lastIndex = 0
+      let quoted
+      while ((quoted = QUOTED.exec(block[1])) !== null) {
+        record(quoted[1], file, 'SIGNALS const')
       }
     }
   }
@@ -159,6 +181,8 @@ function main() {
 
   for (const [key, places] of references) {
     if (keys.has(key)) continue
+    const alias = LIVE_ALIASES.get(key)
+    if (alias !== undefined && keys.has(alias)) continue
     problems.push(
       `Cheia „${key}" este folosită în interfață dar lipsește din catalog: ${places.join(', ')}`,
     )
