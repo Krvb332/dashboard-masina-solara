@@ -430,3 +430,68 @@ describe('persistență', () => {
     expect(parsed.state.stints).toHaveLength(1)
   })
 })
+
+describe('ștergerea stinturilor', () => {
+  function douaStinturi() {
+    const andrei = store().createProfile('Andrei Pop')
+    const maria = store().createProfile('Maria Ionescu')
+    store().selectDriver(andrei.id, context({}, 1000))
+    // Schimbul închide stintul lui Andrei cu 12 km și îl deschide pe al Mariei.
+    store().selectDriver(
+      maria.id,
+      context(
+        { distanceKm: 12, energyConsumedWh: 600, activeSeconds: 900 },
+        2000,
+      ),
+    )
+    const closed = store().stints.find((stint) => stint.driverId === andrei.id)
+    if (closed === undefined) throw new Error('stintul închis lipsește')
+    return { andrei, maria, closed }
+  }
+
+  it('scoate un stint încheiat din istoric și din totalul pilotului', () => {
+    const { andrei, maria, closed } = douaStinturi()
+    expect(store().aggregate(andrei.id).distanceKm).toBe(12)
+
+    store().removeStint(closed.id)
+
+    expect(store().stints.map((stint) => stint.driverId)).toEqual([maria.id])
+    expect(store().aggregate(andrei.id).distanceKm).toBe(0)
+    // Pilotul de la volan nu este afectat de ștergerea unui stint vechi.
+    expect(store().activeDriverId).toBe(maria.id)
+    expect(store().activeStintId).not.toBeNull()
+  })
+
+  it('ștergerea stintului în curs coboară pilotul de la volan', () => {
+    const andrei = store().createProfile('Andrei Pop')
+    store().selectDriver(andrei.id, context())
+    const activeId = store().activeStintId
+    if (activeId === null) throw new Error('niciun stint activ')
+
+    store().removeStint(activeId)
+
+    expect(store().stints).toHaveLength(0)
+    expect(store().activeStintId).toBeNull()
+    expect(store().activeDriverId).toBeNull()
+  })
+
+  it('un identificator necunoscut nu schimbă nimic', () => {
+    const andrei = store().createProfile('Andrei Pop')
+    store().selectDriver(andrei.id, context())
+    const before = store().stints
+
+    store().removeStint('stint-inexistent')
+
+    expect(store().stints).toBe(before)
+  })
+
+  it('golirea istoricului păstrează stintul în curs', () => {
+    const { maria } = douaStinturi()
+
+    store().removeClosedStints()
+
+    expect(store().stints).toHaveLength(1)
+    expect(store().stints[0]?.id).toBe(store().activeStintId)
+    expect(store().activeDriverId).toBe(maria.id)
+  })
+})

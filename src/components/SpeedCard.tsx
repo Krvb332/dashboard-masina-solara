@@ -45,6 +45,8 @@ export function SpeedCard() {
     <article
       className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/10 backdrop-blur-sm"
       data-speed-source={speed.source ?? 'none'}
+      // Aceeași ancoră ca varianta `MetricCard`: o alarmă de viteză duce aici.
+      data-signal="vehicle_speed_kph"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">

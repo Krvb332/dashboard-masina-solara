@@ -1,8 +1,14 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, useLocation } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useErrorStore, type ErrorReport } from '../stores/error-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
+import {
+  makeSignal,
+  resetTelemetryStore,
+  seedTelemetry,
+} from '../test/fixtures'
 import { ErrorPanel, ErrorPanelToggle } from './ErrorPanel'
 import { ErrorToasts } from './ErrorToasts'
 
@@ -12,6 +18,7 @@ const raport: ErrorReport = {
   severity: 'critical',
   title: 'Pachet supraîncălzit',
   message: '61 °C peste pragul de 58 °C.',
+  signalKey: 'battery_temp_max_c',
 }
 
 // Confirmarea se trimite și serverului; în teste nu vrem rețea.
@@ -21,13 +28,19 @@ vi.mock('../lib/api', async (importOriginal) => ({
   ackAlarm: (id: string) => ackAlarm(id),
 }))
 
-function Ansamblu() {
+function LocationProbe() {
+  return <span data-testid="location">{useLocation().pathname}</span>
+}
+
+/** Ca în aplicație: panoul și notificările stau sub router, ca să poată naviga. */
+function Ansamblu({ initialPath = '/' }: { initialPath?: string }) {
   return (
-    <>
+    <MemoryRouter initialEntries={[initialPath]}>
       <ErrorPanelToggle />
       <ErrorPanel />
       <ErrorToasts />
-    </>
+      <LocationProbe />
+    </MemoryRouter>
   )
 }
 
@@ -35,9 +48,13 @@ describe('panoul de erori', () => {
   beforeEach(() => {
     useErrorStore.getState().clearAll()
     useErrorStore.getState().setPanelOpen(false)
+    useErrorStore.setState({ focusRequest: null })
     useTelemetryStore.setState({ acknowledged: [] })
+    seedTelemetry([makeSignal({ key: 'battery_temp_max_c', group: 'thermal' })])
     ackAlarm.mockClear()
   })
+
+  afterEach(resetTelemetryStore)
 
   it('afișează o notificare la apariția unei erori', () => {
     useErrorStore.getState().sync([raport])
@@ -129,5 +146,97 @@ describe('panoul de erori', () => {
     expect(
       screen.queryByRole('button', { name: /Confirmă alarma/ }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('drumul de la eroare la sursa ei', () => {
+  beforeEach(() => {
+    useErrorStore.getState().clearAll()
+    useErrorStore.getState().setPanelOpen(false)
+    useErrorStore.setState({ focusRequest: null })
+    seedTelemetry([makeSignal({ key: 'battery_temp_max_c', group: 'thermal' })])
+  })
+
+  afterEach(resetTelemetryStore)
+
+  it('un click pe eroarea din panou închide panoul și duce la pagina semnalului', async () => {
+    const user = userEvent.setup()
+    useErrorStore.getState().sync([raport])
+    render(<Ansamblu initialPath="/" />)
+
+    await user.click(screen.getByTestId('error-panel-toggle'))
+    await user.click(
+      within(screen.getByTestId('error-list')).getByTestId('error-locate'),
+    )
+
+    expect(useErrorStore.getState().panelOpen).toBe(false)
+    expect(screen.getByTestId('location')).toHaveTextContent('/sistem')
+    expect(useErrorStore.getState().focusRequest?.selectors).toEqual([
+      '[data-signal="battery_temp_max_c"]',
+    ])
+  })
+
+  it('un click pe notificare o închide și duce la sursă', async () => {
+    const user = userEvent.setup()
+    useErrorStore
+      .getState()
+      .sync([{ ...raport, id: 'fault:17', source: 'fault' }])
+    render(<Ansamblu initialPath="/energie" />)
+
+    await user.click(
+      within(screen.getByRole('alert')).getByTestId('error-toast-locate'),
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(useErrorStore.getState().entries[0]).toMatchObject({
+      dismissed: true,
+      active: true,
+    })
+    expect(screen.getByTestId('location')).toHaveTextContent('/sistem')
+    expect(useErrorStore.getState().focusRequest?.selectors).toEqual([
+      '[data-fault-bit="17"]',
+      '[data-error-anchor="faults"]',
+    ])
+  })
+
+  it('o eroare rezolvată duce tot la locul ei', async () => {
+    const user = userEvent.setup()
+    useErrorStore.getState().sync([raport], 1000)
+    useErrorStore.getState().sync([], 2000)
+    render(<Ansamblu initialPath="/" />)
+
+    await user.click(screen.getByTestId('error-panel-toggle'))
+    await user.click(screen.getByTestId('error-locate'))
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/sistem')
+  })
+
+  it('o alarmă fără semnal atașat rămâne text, nu buton', async () => {
+    const user = userEvent.setup()
+    useErrorStore
+      .getState()
+      .sync([{ ...raport, id: 'alarm:generic', signalKey: undefined }])
+    render(<Ansamblu />)
+
+    expect(screen.queryByTestId('error-toast-locate')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('error-panel-toggle'))
+    expect(screen.queryByTestId('error-locate')).not.toBeInTheDocument()
+    expect(screen.getByTestId('error-list')).toHaveTextContent(
+      'Pachet supraîncălzit',
+    )
+  })
+
+  it('butonul de confirmare rămâne apăsabil peste zona de click a rândului', async () => {
+    const user = userEvent.setup()
+    useErrorStore.getState().sync([raport])
+    render(<Ansamblu />)
+
+    await user.click(screen.getByTestId('error-panel-toggle'))
+    await user.click(screen.getByRole('button', { name: /Confirmă alarma/ }))
+
+    expect(useTelemetryStore.getState().acknowledged).toEqual(['pack-hot'])
+    // Confirmarea nu a declanșat și navigarea.
+    expect(useErrorStore.getState().panelOpen).toBe(true)
+    expect(useErrorStore.getState().focusRequest).toBeNull()
   })
 })

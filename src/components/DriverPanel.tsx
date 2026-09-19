@@ -2,7 +2,12 @@ import clsx from 'clsx'
 import { Check, Pencil, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import { analyticsTotals } from '../lib/analytics-control'
-import { formatDuration, formatNumber, NO_VALUE } from '../lib/format'
+import {
+  formatClock,
+  formatDuration,
+  formatNumber,
+  NO_VALUE,
+} from '../lib/format'
 import { useDriverStore } from '../stores/driver-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 
@@ -14,7 +19,8 @@ import { useTelemetryStore } from '../stores/telemetry-store'
  * confirmare în plus la schimbul de pilot ar întârzia tăietura cu secundele în
  * care mașina chiar merge.
  *
- * Ștergerea unui profil, în schimb, cere confirmare, fiindcă nu se poate anula.
+ * Ștergerea unui profil sau a unui stint, în schimb, cere confirmare, fiindcă
+ * nu se poate anula.
  */
 
 export function DriverPanel() {
@@ -283,57 +289,167 @@ export function DriverPanel() {
 function StintTable() {
   const stints = useDriverStore((state) => state.stints)
   const activeStintId = useDriverStore((state) => state.activeStintId)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const store = useDriverStore.getState
+  const closedCount = stints.filter(
+    (stint) => stint.id !== activeStintId,
+  ).length
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
-        <caption className="sr-only">Stinturile înregistrate</caption>
-        <thead>
-          <tr className="text-left text-xs tracking-wide text-zinc-500 uppercase">
-            <th className="pb-2 font-medium">Pilot</th>
-            <th className="pb-2 font-medium">Timp cu date</th>
-            <th className="pb-2 font-medium">Distanță</th>
-            <th className="pb-2 font-medium">Energie</th>
-            <th className="pb-2 font-medium">Consum</th>
-            <th className="pb-2 font-medium">Viteză medie</th>
-            <th className="pb-2 font-medium">Manevre bruște</th>
-          </tr>
-        </thead>
-        <tbody className="text-zinc-300">
-          {[...stints].reverse().map((stint) => (
-            <tr key={stint.id} className="border-t border-white/5">
-              <td className="py-2 font-medium text-white">
-                {stint.driverName}
-                {stint.id === activeStintId && (
-                  <span className="ml-2 text-xs text-emerald-300">activ</span>
-                )}
-              </td>
-              <td className="py-2 tabular-nums">
-                {formatDuration(stint.summary.durationS)}
-              </td>
-              <td className="py-2 tabular-nums">
-                {formatNumber(stint.summary.distanceKm, 2)} km
-              </td>
-              <td className="py-2 tabular-nums">
-                {formatNumber(stint.summary.energyConsumedWh, 0)} Wh
-              </td>
-              <td className="py-2 tabular-nums">
-                {stint.summary.whPerKm === null
-                  ? NO_VALUE
-                  : `${formatNumber(stint.summary.whPerKm, 1)} Wh/km`}
-              </td>
-              <td className="py-2 tabular-nums">
-                {stint.summary.averageSpeedKph === null
-                  ? NO_VALUE
-                  : `${formatNumber(stint.summary.averageSpeedKph, 1)} km/h`}
-              </td>
-              <td className="py-2 tabular-nums">
-                {stint.summary.harshAccelCount + stint.summary.harshBrakeCount}
-              </td>
+    <div className="grid gap-3">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <caption className="sr-only">Stinturile înregistrate</caption>
+          <thead>
+            <tr className="text-left text-xs tracking-wide text-zinc-500 uppercase">
+              <th className="pb-2 font-medium">Pilot</th>
+              <th className="pb-2 font-medium">Timp cu date</th>
+              <th className="pb-2 font-medium">Distanță</th>
+              <th className="pb-2 font-medium">Energie</th>
+              <th className="pb-2 font-medium">Consum</th>
+              <th className="pb-2 font-medium">Viteză medie</th>
+              <th className="pb-2 font-medium">Manevre bruște</th>
+              <th className="pb-2 font-medium">
+                <span className="sr-only">Acțiuni</span>
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="text-zinc-300">
+            {[...stints].reverse().map((stint) => {
+              const active = stint.id === activeStintId
+
+              return (
+                <tr
+                  key={stint.id}
+                  className="border-t border-white/5"
+                  data-stint={stint.id}
+                >
+                  <td className="py-2 font-medium text-white">
+                    {stint.driverName}
+                    {active && (
+                      <span className="ml-2 text-xs text-emerald-300">
+                        activ
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {formatDuration(stint.summary.durationS)}
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {formatNumber(stint.summary.distanceKm, 2)} km
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {formatNumber(stint.summary.energyConsumedWh, 0)} Wh
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {stint.summary.whPerKm === null
+                      ? NO_VALUE
+                      : `${formatNumber(stint.summary.whPerKm, 1)} Wh/km`}
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {stint.summary.averageSpeedKph === null
+                      ? NO_VALUE
+                      : `${formatNumber(stint.summary.averageSpeedKph, 1)} km/h`}
+                  </td>
+                  <td className="py-2 tabular-nums">
+                    {stint.summary.harshAccelCount +
+                      stint.summary.harshBrakeCount}
+                  </td>
+                  <td className="py-2">
+                    {/* Stintul în curs nu se șterge de aici: întâi „Coboară",
+                        apoi devine un rând ca oricare altul. */}
+                    <div className="flex min-h-9 items-center justify-end">
+                      {active ? null : confirmDelete === stint.id ? (
+                        <span className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              store().removeStint(stint.id)
+                              setConfirmDelete(null)
+                            }}
+                            className="min-h-9 rounded-lg bg-rose-600 px-3 text-xs font-medium text-white"
+                          >
+                            Șterge
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(null)}
+                            className="min-h-9 rounded-lg bg-white/5 px-3 text-xs text-zinc-300"
+                          >
+                            Nu
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label={`Șterge stintul lui ${stint.driverName} de la ${formatClock(stint.startedAt)}`}
+                          onClick={() => {
+                            setConfirmClear(false)
+                            setConfirmDelete(stint.id)
+                          }}
+                          className="grid size-9 place-items-center rounded-lg bg-white/5 text-zinc-500 hover:text-rose-300"
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {closedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-zinc-500">
+            Ștergerea unui stint scoate distanța și energia lui din totalul
+            pilotului. Nu se poate anula.
+          </p>
+
+          {confirmClear ? (
+            <span className="flex items-center gap-2">
+              <span className="text-xs text-zinc-400">
+                Se șterg {closedCount} stinturi încheiate; cel în curs rămâne.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  store().removeClosedStints()
+                  setConfirmClear(false)
+                }}
+                className="min-h-9 rounded-lg bg-rose-600 px-3 text-xs font-medium text-white"
+                data-testid="stints-clear-confirm"
+              >
+                Șterge
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="min-h-9 rounded-lg bg-white/5 px-3 text-xs text-zinc-300"
+              >
+                Nu
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmDelete(null)
+                setConfirmClear(true)
+              }}
+              className="flex min-h-9 items-center gap-2 rounded-lg bg-white/5 px-3 text-xs text-zinc-300 hover:text-rose-300"
+              data-testid="stints-clear"
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Golește istoricul
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

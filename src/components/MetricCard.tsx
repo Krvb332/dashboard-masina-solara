@@ -87,6 +87,8 @@ export function MetricCard({
         state === 'sensor_error' && 'border-rose-400/30',
         className,
       )}
+      // Ancora după care jurnalul de erori găsește cardul acestui semnal.
+      data-signal={signalKey}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -158,7 +160,10 @@ export function MetricRow({ signalKey }: { signalKey: string }) {
   const tone = toneFor(definition, fresh ? value : null)
 
   return (
-    <li className="flex min-h-11 min-w-0 items-center justify-between gap-4 rounded-xl bg-black/15 px-3 py-2">
+    <li
+      className="flex min-h-11 min-w-0 items-center justify-between gap-4 rounded-xl bg-black/15 px-3 py-2"
+      data-signal={signalKey}
+    >
       <div className="min-w-0">
         <p className="truncate text-sm font-medium text-zinc-200">
           {definition?.label ?? signalKey}

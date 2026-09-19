@@ -46,17 +46,36 @@ export type ErrorEntry = {
   dismissed: boolean
   /** Intrarea a fost văzută în panou (nu mai contează la insigna „noi"). */
   seen: boolean
+  /**
+   * Semnalul din catalog de la care pornește eroarea, când există unul:
+   * pragul depășit al unei alarme, senzorul raportat ca defect. După el se
+   * găsește locul de pe interfață unde se afișează valoarea cu probleme.
+   */
+  signalKey?: string
 }
 
 /** Ce raportează colectorul: partea „de fapt", fără starea de interfață. */
 export type ErrorReport = Pick<
   ErrorEntry,
-  'id' | 'source' | 'severity' | 'title' | 'message'
+  'id' | 'source' | 'severity' | 'title' | 'message' | 'signalKey'
 >
+
+/**
+ * Cererea de a arăta pe pagină elementul de la care vine o eroare.
+ *
+ * `selectors` se încearcă în ordine, primul care există câștigă. `token`
+ * deosebește două cereri identice consecutive: al doilea click pe aceeași
+ * eroare trebuie să evidențieze elementul din nou, nu să fie ignorat.
+ */
+export type ErrorFocusRequest = {
+  selectors: string[]
+  token: number
+}
 
 type ErrorStore = {
   entries: ErrorEntry[]
   panelOpen: boolean
+  focusRequest: ErrorFocusRequest | null
 
   /**
    * Sincronizează jurnalul cu setul de erori active în acest moment.
@@ -72,6 +91,8 @@ type ErrorStore = {
   clearAll: () => void
   setPanelOpen: (open: boolean) => void
   togglePanel: () => void
+  /** Cere evidențierea primului element care există dintre selectori. */
+  requestFocus: (selectors: string[]) => void
 }
 
 /** Cât istoric păstrăm. Peste atât, cele mai vechi rezolvate cad primele. */
@@ -86,6 +107,7 @@ const severityRank: Record<Severity, number> = {
 export const useErrorStore = create<ErrorStore>((set) => ({
   entries: [],
   panelOpen: false,
+  focusRequest: null,
 
   sync: (reports, now = Date.now()) =>
     set((state) => {
@@ -124,6 +146,7 @@ export const useErrorStore = create<ErrorStore>((set) => ({
             severity: report.severity,
             title: report.title,
             message: report.message,
+            signalKey: report.signalKey,
             lastAt: now,
             active: true,
             occurrences: reappeared ? entry.occurrences + 1 : entry.occurrences,
@@ -191,6 +214,14 @@ export const useErrorStore = create<ErrorStore>((set) => ({
 
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   togglePanel: () => set((state) => ({ panelOpen: !state.panelOpen })),
+
+  requestFocus: (selectors) =>
+    set((state) => ({
+      focusRequest: {
+        selectors,
+        token: (state.focusRequest?.token ?? 0) + 1,
+      },
+    })),
 }))
 
 /** Taie istoricul, sacrificând întâi cele mai vechi intrări rezolvate. */

@@ -46,6 +46,7 @@ export function useErrorLog(): void {
         severity: alarm.severity,
         title: alarm.label,
         message: alarm.message,
+        signalKey: alarm.signal_key ?? undefined,
       })
     }
 
@@ -68,6 +69,7 @@ export function useErrorLog(): void {
         id: `signal:${key}`,
         source: 'signal',
         severity: 'warning',
+        signalKey: key,
         title: `Senzor defect: ${catalogByKey[key]?.label ?? key}`,
         message:
           'Semnalul sosește, dar valoarea este marcată ca invalidă de sursă.',

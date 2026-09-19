@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAnalyticsEngine } from '../hooks/useAnalyticsEngine'
 import { useErrorLog } from '../hooks/useErrorLog'
+import { useErrorFocus } from '../hooks/useErrorNavigation'
 import { useTelemetryStream } from '../hooks/useTelemetryStream'
 import { useWeather } from '../hooks/useWeather'
 import { API_URL } from '../lib/api'
@@ -70,6 +71,7 @@ export function AppShell() {
   useAnalyticsEngine()
   useWeather()
   useErrorLog()
+  useErrorFocus()
 
   // Două stări separate: sertarul peste conținut (mobil) și coloana fixă
   // (desktop). Aceeași stare pentru amândouă ar redeschide sertarul mobil

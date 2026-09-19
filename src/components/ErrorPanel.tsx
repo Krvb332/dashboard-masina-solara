@@ -1,7 +1,16 @@
 import clsx from 'clsx'
-import { BellRing, Check, CheckCircle2, Trash2, X } from 'lucide-react'
+import {
+  BellRing,
+  Check,
+  CheckCircle2,
+  LocateFixed,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
+import { useGoToErrorSource } from '../hooks/useErrorNavigation'
 import { ackAlarm } from '../lib/api'
+import { locateError } from '../lib/error-locator'
 import { formatClock } from '../lib/format'
 import {
   sortEntries,
@@ -22,6 +31,10 @@ import {
  *
  * Stă peste conținut, nu în fluxul paginii: se deschide oriunde te-ai afla,
  * fără să rearanjeze dashboardul sub ochii cuiva care tocmai citea o valoare.
+ *
+ * Un click pe o eroare duce la locul de pe interfață de unde vine: cardul sau
+ * rândul semnalului, bitul din panoul controllerului, panoul cu sănătatea
+ * fluxului. Panoul se închide singur, ca să nu acopere exact ce arată.
  */
 
 export function ErrorPanel() {
@@ -31,6 +44,7 @@ export function ErrorPanel() {
   const clearResolved = useErrorStore((state) => state.clearResolved)
   const entries = useErrorStore((state) => state.entries)
   const closeButton = useRef<HTMLButtonElement>(null)
+  const goToSource = useGoToErrorSource()
 
   const sorted = useMemo(() => sortEntries(entries), [entries])
   const active = sorted.filter((entry) => entry.active)
@@ -109,7 +123,14 @@ export function ErrorPanel() {
           ) : (
             <ul className="space-y-2" data-testid="error-list">
               {sorted.map((entry) => (
-                <ErrorRow key={entry.id} entry={entry} />
+                <ErrorRow
+                  key={entry.id}
+                  entry={entry}
+                  onLocate={() => {
+                    setPanelOpen(false)
+                    goToSource(entry)
+                  }}
+                />
               ))}
             </ul>
           )}
@@ -134,9 +155,18 @@ export function ErrorPanel() {
   )
 }
 
-function ErrorRow({ entry }: { entry: ErrorEntry }) {
+function ErrorRow({
+  entry,
+  onLocate,
+}: {
+  entry: ErrorEntry
+  onLocate: () => void
+}) {
   const SeverityIcon = severityIcons[entry.severity]
   const SourceIcon = sourceIcons[entry.source]
+  const catalogByKey = useTelemetryStore((state) => state.catalogByKey)
+  // O alarmă fără semnal atașat nu are unde să ducă: rămâne text simplu.
+  const locatable = locateError(entry, catalogByKey) !== null
 
   // Alarmele serverului se pot confirma („am văzut"), iar confirmarea intră în
   // istoricul sesiunii. Restul surselor n-au ce confirma: dispar când se rezolvă.
@@ -158,11 +188,12 @@ function ErrorRow({ entry }: { entry: ErrorEntry }) {
   return (
     <li
       className={clsx(
-        'rounded-xl border p-3',
+        'relative rounded-xl border p-3',
         entry.active
           ? severityStyles[entry.severity]
           : 'border-white/10 bg-white/[0.02] text-zinc-400',
         entry.active && acknowledged && 'opacity-55',
+        locatable && 'transition-shadow hover:ring-1 hover:ring-white/20',
       )}
       data-severity={entry.severity}
       data-source={entry.source}
@@ -176,7 +207,28 @@ function ErrorRow({ entry }: { entry: ErrorEntry }) {
         />
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{entry.title}</p>
+          {locatable ? (
+            // Butonul se întinde peste tot rândul prin `after:`, ca orice
+            // click pe eroare să ducă la sursă; butonul de confirmare stă
+            // deasupra lui (`relative`), deci rămâne apăsabil.
+            <button
+              type="button"
+              onClick={onLocate}
+              className="block w-full text-left text-sm font-medium after:absolute after:inset-0 after:rounded-xl after:content-['']"
+              title="Arată pe interfață de unde vine eroarea"
+              data-testid="error-locate"
+            >
+              {entry.title}
+              <LocateFixed
+                size={13}
+                className="ml-1.5 inline-block align-[-2px] text-current/60"
+                aria-hidden="true"
+              />
+              <span className="sr-only"> — arată sursa pe interfață</span>
+            </button>
+          ) : (
+            <p className="text-sm font-medium">{entry.title}</p>
+          )}
           <p className="mt-1 text-xs leading-5 text-current/70">
             {entry.message}
           </p>
@@ -209,7 +261,7 @@ function ErrorRow({ entry }: { entry: ErrorEntry }) {
             <button
               type="button"
               onClick={handleAck}
-              className="grid size-8 shrink-0 place-items-center rounded-lg bg-black/20 transition-colors hover:bg-black/35"
+              className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-black/20 transition-colors hover:bg-black/35"
               aria-label={`Confirmă alarma ${entry.title}`}
               title="Confirmă"
             >

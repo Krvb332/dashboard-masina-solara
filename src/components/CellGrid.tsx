@@ -71,6 +71,9 @@ export function CellGrid() {
       <ul
         className="grid grid-cols-8 gap-1.5 sm:grid-cols-8 lg:grid-cols-16"
         aria-label="Tensiunea fiecărei celule"
+        // Locul erorilor legate de indicele celulei minime/maxime, care nu au
+        // rând propriu: grila le arată ca marcaj.
+        data-error-anchor="cells"
       >
         {cells.map((signal, position) => (
           <CellBar
@@ -129,6 +132,7 @@ function CellBar({ signalKey, number, isMin, isMax }: CellBarProps) {
       )}
       title={eticheta}
       data-cell={number}
+      data-signal={signalKey}
       data-quality={state}
     >
       <div

@@ -7,6 +7,9 @@ import { activeFaults } from '../lib/mitsuba-faults'
  *
  * Tabelul de biți trăiește în `lib/mitsuba-faults.ts`; îl reexportăm de aici
  * pentru codul (și testele) care îl cereau din panou.
+ *
+ * Fiecare stare a panoului poartă `data-error-anchor="faults"`: jurnalul de
+ * erori duce aici și când bitul s-a stins și nu mai are rând propriu.
  */
 
 export { MITSUBA_FAULTS } from '../lib/mitsuba-faults'
@@ -17,7 +20,11 @@ export function FaultPanel() {
 
   if (!fresh || value === null) {
     return (
-      <p className="text-sm text-zinc-500" data-testid="fault-unavailable">
+      <p
+        className="text-sm text-zinc-500"
+        data-testid="fault-unavailable"
+        data-error-anchor="faults"
+      >
         Controllerul nu raportează starea de eroare.
       </p>
     )
@@ -30,6 +37,7 @@ export function FaultPanel() {
       <p
         className="flex items-center gap-2 text-sm text-emerald-300"
         data-testid="fault-none"
+        data-error-anchor="faults"
       >
         <CircleCheck className="size-4 shrink-0" aria-hidden="true" />
         Fără erori raportate de controller.
@@ -38,7 +46,11 @@ export function FaultPanel() {
   }
 
   return (
-    <ul className="space-y-2" data-testid="fault-list">
+    <ul
+      className="space-y-2"
+      data-testid="fault-list"
+      data-error-anchor="faults"
+    >
       {active.map((fault) => (
         <li
           key={fault.bit}

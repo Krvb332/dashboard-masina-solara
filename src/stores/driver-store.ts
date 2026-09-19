@@ -81,6 +81,13 @@ type DriverStore = {
   recordTotals: (context: DriverContext) => void
 
   clearHistory: () => void
+  /**
+   * Șterge un stint din istoric. Dacă este cel în curs, pilotul coboară de la
+   * volan: fără stint nu mai are unde să i se strângă contoarele.
+   */
+  removeStint: (id: string) => void
+  /** Golește istoricul, păstrând stintul în curs. */
+  removeClosedStints: () => void
   aggregate: (driverId: string) => DriverAggregate
 }
 
@@ -402,6 +409,25 @@ export const useDriverStore = create<DriverStore>()(
 
       clearHistory: () =>
         set({ stints: [], activeDriverId: null, activeStintId: null }),
+
+      removeStint: (id) =>
+        set((state) => {
+          if (!state.stints.some((stint) => stint.id === id)) return state
+          const eraActiv = state.activeStintId === id
+
+          return {
+            stints: state.stints.filter((stint) => stint.id !== id),
+            activeStintId: eraActiv ? null : state.activeStintId,
+            activeDriverId: eraActiv ? null : state.activeDriverId,
+          }
+        }),
+
+      removeClosedStints: () =>
+        set((state) => ({
+          stints: state.stints.filter(
+            (stint) => stint.id === state.activeStintId,
+          ),
+        })),
 
       aggregate: (driverId) => aggregateFor(driverId, get().stints),
     }),

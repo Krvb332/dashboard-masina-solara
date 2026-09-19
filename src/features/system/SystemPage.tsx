@@ -16,6 +16,7 @@ import {
   NO_VALUE,
 } from '../../lib/format'
 import type { QualityState } from '../../schemas/telemetry'
+import type { ErrorAnchor } from '../../lib/error-locator'
 import { useSignalsByGroup } from '../../hooks/useSignal'
 import { useStreamStats } from '../../hooks/useStreamStats'
 import { isFaultCodeSignal, isInDriveStatePanel } from '../../lib/signal-groups'
@@ -129,14 +130,21 @@ function StreamHealth() {
   const connection = useTelemetryStore((state) => state.connection)
   const clockOffset = useTelemetryStore((state) => state.clientClockOffsetMs)
 
-  const rows: [string, string][] = [
-    ['Stare conexiune', connectionLabels[connection]],
+  // Al treilea element este ancora după care jurnalul de erori găsește rândul:
+  // eroarea de legătură duce la starea conexiunii, cea de flux la cadrele
+  // invalide.
+  const rows: [string, string, ErrorAnchor?][] = [
+    ['Stare conexiune', connectionLabels[connection], 'connection'],
     ['Mesaje primite', formatNumber(stats.received, 0)],
     ['Mesaje pierdute', formatNumber(stats.dropped, 0)],
     ['Duplicate', formatNumber(stats.duplicates, 0)],
     ['Ordine incorectă', formatNumber(stats.out_of_order, 0)],
     ['Respinse la validare (server)', formatNumber(stats.invalid, 0)],
-    ['Cadre invalide (browser)', formatNumber(invalidFrames, 0)],
+    [
+      'Cadre invalide (browser)',
+      formatNumber(invalidFrames, 0),
+      'stream-invalid',
+    ],
     [
       'Ritm cadre',
       stats.effective_hz > 0
@@ -168,8 +176,12 @@ function StreamHealth() {
       action={<SystemResetButton />}
     >
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex justify-between gap-4 text-sm">
+        {rows.map(([label, value, anchor]) => (
+          <div
+            key={label}
+            className="flex justify-between gap-4 rounded-md text-sm"
+            data-error-anchor={anchor}
+          >
             <dt className="text-zinc-500">{label}</dt>
             <dd className="font-medium text-zinc-200 tabular-nums">{value}</dd>
           </div>
@@ -295,7 +307,13 @@ function QualityTable() {
 
             return (
               <tr key={signal.key} className="border-t border-white/5">
-                <td className="py-2">
+                {/*
+                  Ancora stă pe celulă, nu pe rând: inelul de evidențiere se
+                  desenează cu box-shadow, pe care browserele nu îl pictează
+                  consecvent pe `tr`. Tabelul rămâne locul de rezervă al
+                  oricărui semnal care nu are card sau rând în altă parte.
+                */}
+                <td className="rounded-md py-2" data-signal={signal.key}>
                   <span className="font-medium text-zinc-200">
                     {signal.label}
                   </span>

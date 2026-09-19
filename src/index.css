@@ -62,3 +62,27 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
   }
 }
+
+/*
+  Elementul de la care vine o eroare, arătat din jurnalul de erori: un inel
+  care se stinge singur. Atributul îl pune și îl scoate `useErrorFocus`, așa
+  că durata animației trebuie să rămână sub `HIGHLIGHT_MS` de acolo.
+*/
+[data-error-focus] {
+  animation: error-focus 2.4s ease-out both;
+  outline: none;
+}
+
+@keyframes error-focus {
+  0%,
+  55% {
+    box-shadow:
+      0 0 0 2px rgb(251 191 36 / 0.95),
+      0 0 0 8px rgb(251 191 36 / 0.22);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px rgb(251 191 36 / 0),
+      0 0 0 8px rgb(251 191 36 / 0);
+  }
+}
