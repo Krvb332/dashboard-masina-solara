@@ -1,4 +1,3 @@
-import { CoachingPanel } from '../../components/CoachingPanel'
 import { ConsumptionPanel } from '../../components/ConsumptionPanel'
 import { ElevationProfileChart } from '../../components/ElevationProfile'
 import { Panel } from '../../components/Panel'
@@ -12,12 +11,12 @@ import { useAnalyticsStore } from '../../stores/analytics-store'
 import { useDriverStore } from '../../stores/driver-store'
 
 /**
- * Pagina de decizie rapidă: numai grafice, cifre derivate și ce are pilotul de
- * făcut. Fără liste de senzori și fără tabele de diagnostic — acelea au pagina
- * lor, iar aici ar întârzia exact decizia pentru care s-a deschis pagina.
+ * Pagina de decizie rapidă: numai grafice și cifre derivate. Fără liste de
+ * senzori și fără tabele de diagnostic — acelea au pagina lor, iar aici ar
+ * întârzia exact decizia pentru care s-a deschis pagina.
  *
- * Ordinea de pe ecran este ordinea întrebărilor din boxă: ce facem acum, cât
- * consumăm, cum evoluează, cine conduce.
+ * Ordinea de pe ecran este ordinea întrebărilor din boxă: cât consumăm, cum
+ * evoluează, cine conduce.
  */
 export function StatisticsPage() {
   const snapshot = useAnalyticsStore((state) => state.snapshot)
@@ -31,17 +30,8 @@ export function StatisticsPage() {
 
   return (
     <>
-      <section className="mt-7" aria-label="Recomandări pentru pilot">
-        <Panel
-          title="Ce transmitem pilotului"
-          subtitle="Cea mai gravă observație, cu cifra din spatele ei"
-        >
-          <CoachingPanel />
-        </Panel>
-      </section>
-
       <section
-        className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
         aria-label="Indicatori de decizie"
       >
         <StatTile

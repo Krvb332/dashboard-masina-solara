@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import {
   Bolt,
   ChartLine,
+  ChartSpline,
   Circle,
   CloudSun,
   LayoutDashboard,
@@ -40,6 +41,7 @@ import { ReplayControls } from './ReplayControls'
 const navigation = [
   { to: '/', label: 'Prezentare', icon: LayoutDashboard, end: true },
   { to: '/statistici', label: 'Statistici', icon: ChartLine },
+  { to: '/grafice', label: 'Grafice', icon: ChartSpline },
   { to: '/energie', label: 'Energie', icon: Bolt },
   { to: '/traseu', label: 'Traseu', icon: Map },
   { to: '/vreme', label: 'Vreme', icon: CloudSun },

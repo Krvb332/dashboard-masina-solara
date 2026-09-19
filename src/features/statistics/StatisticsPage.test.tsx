@@ -1,10 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TelemetryAnalytics, type QualityEntry } from '../../lib/analytics'
+import { TelemetryAnalytics } from '../../lib/analytics'
 import { useAnalyticsStore } from '../../stores/analytics-store'
 import { resetDriverStore, useDriverStore } from '../../stores/driver-store'
-import { resetTelemetryStore } from '../../test/fixtures'
+import { publishSimulatedRun, resetTelemetryStore } from '../../test/fixtures'
 import { StatisticsPage } from './StatisticsPage'
 
 // Canvas și ECharts nu au sens în jsdom; verificăm compoziția paginii și
@@ -18,45 +18,12 @@ vi.mock('../../components/ElevationProfile', () => ({
   ElevationProfileChart: () => <div data-testid="elevation-profile" />,
 }))
 
-const valid = (value: number): QualityEntry => ({ state: 'valid', value })
-
 function renderPage() {
   return render(
     <MemoryRouter>
       <StatisticsPage />
     </MemoryRouter>,
   )
-}
-
-/** Publică în store un snapshot obținut dintr-o sesiune simulată reală. */
-function publishRun(): void {
-  const analytics = new TelemetryAnalytics()
-
-  // Zece secunde la 45 km/h, 1800 W din pachet, 900 W de la panouri,
-  // 300 W recuperați, contoare crescătoare.
-  for (let step = 0; step <= 50; step += 1) {
-    analytics.update({
-      timeMs: step * 200,
-      quality: {
-        vehicle_speed_kph: valid(45),
-        battery_power_w: valid(1800),
-        solar_power_w: valid(900),
-        regen_power_w: valid(300),
-        motor_power_w: valid(1600),
-        battery_soc_pct: valid(70),
-        battery_voltage_v: valid(115),
-        battery_current_a: valid(15.65),
-        distance_km: valid(step * 0.0025),
-        energy_consumed_wh: valid(step * 0.1),
-        energy_solar_wh: valid(step * 0.05),
-        energy_regen_wh: valid(step * 0.0167),
-        gps_altitude_m: valid(340),
-        throttle_pct: valid(38),
-      },
-    })
-  }
-
-  useAnalyticsStore.getState().publish(analytics.snapshot())
 }
 
 beforeEach(() => {
@@ -74,12 +41,6 @@ afterEach(() => {
 })
 
 describe('fără date de la mașină', () => {
-  it('spune explicit că nu are ce recomanda', () => {
-    renderPage()
-
-    expect(screen.getByText(/Fără date de la mașină/i)).toBeInTheDocument()
-  })
-
   it('nu afișează cifre derivate inventate', () => {
     renderPage()
 
@@ -103,7 +64,7 @@ describe('fără date de la mașină', () => {
 
 describe('cu flux activ', () => {
   beforeEach(() => {
-    publishRun()
+    publishSimulatedRun()
   })
 
   it('arată consumul instantaneu și recuperarea regenerativă', () => {
@@ -140,25 +101,6 @@ describe('cu flux activ', () => {
       .find(Boolean) as HTMLElement
 
     expect(within(threshold).getByText('20,0')).toBeInTheDocument()
-  })
-
-  it('transmite pilotului o recomandare cu acțiune concretă', () => {
-    renderPage()
-
-    // 40 Wh/km față de 20 susținuți: dublu față de echilibru.
-    const advice = document.querySelector('[data-advice="energy-deficit"]')
-    expect(advice).not.toBeNull()
-    expect(advice?.textContent).toMatch(/condu mai economic/i)
-  })
-
-  it('reacționează imediat la o țintă de strategie nouă', () => {
-    renderPage()
-    expect(document.querySelector('[data-advice="range-short"]')).toBeNull()
-
-    useAnalyticsStore.getState().setStrategy({ remainingDistanceKm: 5000 })
-
-    renderPage()
-    expect(document.querySelector('[data-advice="range-short"]')).not.toBeNull()
   })
 
   it('randează graficele de consum, recuperare și bilanț', () => {
