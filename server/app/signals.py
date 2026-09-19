@@ -174,7 +174,7 @@ CATALOG: tuple[Signal, ...] = (
         max=1600,
         overview=True,
         color="#fbbf24",
-        description="Puterea totală livrată de panouri prin controlerele MPPT.",
+        description="Puterea culeasă de la panouri: suma tensiune × curent la intrarea celor două convertoare MPPT.",
     ),
     # Mașina are două convertoare MPPT; `solar_power_w` este suma lor.
     Signal(key="mppt1_power_w", label="MPPT 1", unit="W", group="energy", decimals=0, min=0, max=450),

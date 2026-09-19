@@ -70,8 +70,11 @@ export function ConsumptionPanel() {
           value={snapshot.solarW}
           unit="W"
           decimals={0}
-          formula="solar_power_w (Σ MPPT în verificarea mapării)"
-          tone="good"
+          formula="Σ U_intrare · I_intrare pe convertoarele MPPT"
+          hint="Calculată de server din tensiunea și curentul de intrare ale fiecărui convertor, nu din puterea raportată de el."
+          tone={
+            snapshot.solarW !== null && snapshot.solarW > 0 ? 'good' : 'neutral'
+          }
         />
         <StatTile
           label="Bilanț de putere"
