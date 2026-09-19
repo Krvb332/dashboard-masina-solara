@@ -73,6 +73,8 @@ export const DERIVED_SIGNALS: Record<string, SignalDefinition> = {
     unit: 'km',
     decimals: 1,
     color: '#34d399',
+    description:
+      'Energia de deasupra pragului de oprire al controllerului (45 % SOC) împărțită la consumul din pachet.',
   }),
   calc_efficiency_km_per_kwh: definition({
     key: 'calc_efficiency_km_per_kwh',

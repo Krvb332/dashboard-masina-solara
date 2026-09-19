@@ -24,6 +24,7 @@ import {
   thermalHeadroomPct,
   timeToEmptyS,
   timeToThresholdS,
+  usableEnergyWh,
   VEHICLE,
   type VehicleParameters,
 } from './telemetry-math'
@@ -186,9 +187,19 @@ export type AnalyticsSnapshot = {
   drivetrainEfficiencyPct: number | null
 
   socPct: number | null
+  /** Toată energia rămasă în pachet, `SOC · E_pachet`. */
   remainingWh: number | null
+  /**
+   * Energia de deasupra pragului la care controllerul motorului se oprește
+   * (`VEHICLE.motorCutoffSocPct`): singura care mai mișcă mașina. Din ea se
+   * calculează autonomia și timpul până la oprire.
+   */
+  usableWh: number | null
+  /** Pragul de oprire al controllerului, în % SOC, ca interfața să îl afișeze. */
+  motorCutoffSocPct: number
   rangeKm: number | null
-  timeToEmptyS: number | null
+  /** În câte secunde se consumă energia utilizabilă la puterea din pachet acum. */
+  timeToCutoffS: number | null
   socRatePctPerMin: number | null
   projectedSoc30MinPct: number | null
   cRate: number | null
@@ -767,6 +778,11 @@ export class TelemetryAnalytics {
     )
     const recent = this.recentWhPerKm()
     const remaining = remainingEnergyWh(socPct, this.vehicle.packEnergyWh)
+    const usable = usableEnergyWh(
+      socPct,
+      this.vehicle.motorCutoffSocPct,
+      this.vehicle.packEnergyWh,
+    )
     // Bilanțul pachetului este chiar `−P_pachet`: solarul e deja în el. Doar
     // fără putere de pachet îl reconstruim din solar și sarcină.
     const net = pack !== null ? -pack : netPowerW(solarW, load)
@@ -819,10 +835,14 @@ export class TelemetryAnalytics {
 
       socPct,
       remainingWh: remaining,
+      usableWh: usable,
+      motorCutoffSocPct: this.vehicle.motorCutoffSocPct,
       // Autonomia se sprijină pe consumul recent, nu pe media sesiunii: dacă
-      // pilotul tocmai a încetinit, cifra trebuie să reflecte decizia lui.
-      rangeKm: rangeKm(remaining, recent ?? whPerKm),
-      timeToEmptyS: timeToEmptyS(remaining, pack),
+      // pilotul tocmai a încetinit, cifra trebuie să reflecte decizia lui. Și
+      // pe energia utilizabilă, nu pe cea rămasă: sub pragul controllerului
+      // pachetul mai are energie, dar mașina nu mai merge.
+      rangeKm: rangeKm(usable, recent ?? whPerKm),
+      timeToCutoffS: timeToEmptyS(usable, pack),
       socRatePctPerMin:
         this.socSeries.length >= 10 ? ratePerMinute(this.socSeries) : null,
       projectedSoc30MinPct: projectedSocPct(

@@ -34,6 +34,7 @@ import {
   stdDev,
   thermalHeadroomPct,
   timeToEmptyS,
+  usableEnergyWh,
   timeToThresholdS,
   wheelCircumferenceM,
 } from './telemetry-math'
@@ -147,6 +148,22 @@ describe('baterie', () => {
     }))
     expect(packInternalResistanceOhm(flat)).toBeNull()
     expect(packInternalResistanceOhm([])).toBeNull()
+  })
+
+  it('energia utilizabilă se oprește la pragul controllerului, nu la zero', () => {
+    // 50 % SOC cu prag la 45 %: doar 5 % din 5000 Wh mai mișcă mașina.
+    expect(usableEnergyWh(50, 45, 5000)).toBeCloseTo(250, 9)
+    expect(usableEnergyWh(100, 45, 5000)).toBeCloseTo(2750, 9)
+    // La prag sau sub el nu mai există energie de mers: zero real, nu „—".
+    expect(usableEnergyWh(45, 45, 5000)).toBe(0)
+    expect(usableEnergyWh(30, 45, 5000)).toBe(0)
+    expect(usableEnergyWh(null, 45, 5000)).toBeNull()
+    expect(usableEnergyWh(120, 45, 5000)).toBeNull()
+  })
+
+  it('pragul implicit al controllerului este 45 %', () => {
+    expect(VEHICLE.motorCutoffSocPct).toBe(45)
+    expect(usableEnergyWh(80)).toBeCloseTo(0.35 * VEHICLE.packEnergyWh, 9)
   })
 
   it('proiecția stării de încărcare rămâne între 0 și 100', () => {

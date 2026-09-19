@@ -117,9 +117,10 @@ describe('fără flux conectat', () => {
     expect(snapshot.netPowerW).toBeNull()
     expect(snapshot.roadLoadW).toBeNull()
     expect(snapshot.rangeKm).toBeNull()
-    expect(snapshot.timeToEmptyS).toBeNull()
+    expect(snapshot.timeToCutoffS).toBeNull()
     expect(snapshot.socPct).toBeNull()
     expect(snapshot.remainingWh).toBeNull()
+    expect(snapshot.usableWh).toBeNull()
     expect(snapshot.drivetrainEfficiencyPct).toBeNull()
     expect(snapshot.packResistanceOhm).toBeNull()
     expect(snapshot.gradePct).toBeNull()
@@ -279,15 +280,56 @@ describe('puterea din pachet și bilanțul de putere', () => {
     expect(snapshot.netPowerW).toBe(-2770)
   })
 
-  it('timpul până la golire împarte energia rămasă la puterea din pachet', () => {
+  it('timpul până la oprire împarte energia utilizabilă la puterea din pachet', () => {
     const analytics = new TelemetryAnalytics()
     feed(analytics, 1000, [sunny, sunny])
 
-    // 50 % din 5000 Wh sunt 2500 Wh; la 2770 W se golesc în 2500/2770 ore.
-    expect(analytics.snapshot().timeToEmptyS).toBeCloseTo(
-      (2500 / 2770) * 3600,
-      6,
-    )
+    const snapshot = analytics.snapshot()
+    // 50 % din 5000 Wh sunt 2500 Wh în pachet, dar controllerul se oprește la
+    // 45 %: doar 250 Wh mai mișcă mașina, iar la 2770 W se duc în 250/2770 ore.
+    expect(snapshot.remainingWh).toBeCloseTo(2500, 9)
+    expect(snapshot.usableWh).toBeCloseTo(250, 9)
+    expect(snapshot.timeToCutoffS).toBeCloseTo((250 / 2770) * 3600, 6)
+  })
+
+  it('autonomia se calculează din energia de deasupra pragului de 45 %', () => {
+    const analytics = new TelemetryAnalytics()
+    feed(analytics, 1000, [
+      {
+        energy_consumed_wh: valid(0),
+        distance_km: valid(0),
+        battery_soc_pct: valid(65),
+      },
+      {
+        energy_consumed_wh: valid(40),
+        distance_km: valid(2),
+        battery_soc_pct: valid(65),
+      },
+    ])
+
+    // 20 Wh/km; 65 % − 45 % = 20 % din 5000 Wh = 1000 Wh → 50 km, nu 162 km.
+    expect(analytics.snapshot().rangeKm).toBeCloseTo(50, 9)
+  })
+
+  it('sub pragul controllerului autonomia este zero, nu necunoscută', () => {
+    const analytics = new TelemetryAnalytics()
+    feed(analytics, 1000, [
+      {
+        energy_consumed_wh: valid(0),
+        distance_km: valid(0),
+        battery_soc_pct: valid(40),
+      },
+      {
+        energy_consumed_wh: valid(40),
+        distance_km: valid(2),
+        battery_soc_pct: valid(40),
+      },
+    ])
+
+    const snapshot = analytics.snapshot()
+    expect(snapshot.remainingWh).toBeCloseTo(2000, 9)
+    expect(snapshot.usableWh).toBe(0)
+    expect(snapshot.rangeKm).toBe(0)
   })
 
   it('un pachet care se încarcă nu are timp până la golire', () => {
@@ -302,7 +344,7 @@ describe('puterea din pachet și bilanțul de putere', () => {
 
     const snapshot = analytics.snapshot()
     expect(snapshot.netPowerW).toBe(300)
-    expect(snapshot.timeToEmptyS).toBeNull()
+    expect(snapshot.timeToCutoffS).toBeNull()
   })
 
   it('puterea motorului nu ține loc de puterea din pachet', () => {
@@ -317,7 +359,7 @@ describe('puterea din pachet și bilanțul de putere', () => {
     expect(snapshot.loadPowerW).toBe(1200)
     // Fără pachet, bilanțul se reconstruiește din solar și sarcină.
     expect(snapshot.netPowerW).toBe(500 - 1200)
-    expect(snapshot.timeToEmptyS).toBeNull()
+    expect(snapshot.timeToCutoffS).toBeNull()
   })
 
   it('randamentul lanțului rămâne necunoscut fără aportul solar', () => {

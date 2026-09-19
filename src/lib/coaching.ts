@@ -46,6 +46,8 @@ export type CoachingOptions = {
  * sarcinii (pachet + solar), nu consumului din pachet, care este deja net.
  */
 const SOLAR_DEFICIT_RATIO = 1.5
+/** Cu atâtea procente SOC deasupra pragului de oprire începe avertizarea. */
+const SOC_CUTOFF_MARGIN_PCT = 5
 /** Peste atâta procent din consum dus în aerodinamică, viteza este problema. */
 const AERO_DOMINANT_PCT = 60
 /** Sub acest scor, pedala este nervoasă. */
@@ -121,18 +123,21 @@ export function buildAdvice(
     })
   }
 
-  // --- 2. bateria se golește prea repede -----------------------------------
+  // --- 2. bateria se apropie de pragul de oprire al controllerului ---------
+  // Controllerul motorului se oprește la `motorCutoffSocPct`, nu la 0 %: un
+  // SOC proiectat sub prag plus o marjă înseamnă mașina oprită în 30 de minute.
+  const cutoffWarnPct = snapshot.motorCutoffSocPct + SOC_CUTOFF_MARGIN_PCT
   if (
     snapshot.projectedSoc30MinPct !== null &&
-    snapshot.projectedSoc30MinPct < 10 &&
+    snapshot.projectedSoc30MinPct < cutoffWarnPct &&
     snapshot.socRatePctPerMin !== null &&
     snapshot.socRatePctPerMin < 0
   ) {
     advice.push({
       id: 'soc-drop',
       level: 'critical',
-      title: 'Bateria scade prea repede',
-      detail: `La ritmul actual (${round(snapshot.socRatePctPerMin, 2)} %/min), în 30 de minute rămân ${round(snapshot.projectedSoc30MinPct)} %.`,
+      title: 'Bateria se apropie de pragul de oprire',
+      detail: `La ritmul actual (${round(snapshot.socRatePctPerMin, 2)} %/min), în 30 de minute rămân ${round(snapshot.projectedSoc30MinPct)} %, iar controllerul motorului se oprește la ${round(snapshot.motorCutoffSocPct, 0)} %.`,
       action:
         'Redu imediat puterea cerută: mai puțină accelerație, viteză constantă, fără reprize.',
     })

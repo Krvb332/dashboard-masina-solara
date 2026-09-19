@@ -37,6 +37,7 @@ function packPowerHint(measuredW: number | null): string {
 export function ConsumptionPanel() {
   const snapshot = useAnalyticsStore((state) => state.snapshot)
   const { totals } = snapshot
+  const cutoff = snapshot.motorCutoffSocPct
 
   return (
     <div className="@container grid gap-4">
@@ -166,32 +167,42 @@ export function ConsumptionPanel() {
 
       <Section title="Bateria și restul cursei">
         <StatTile
-          label="Energie rămasă"
+          label="Energie utilizabilă"
+          value={snapshot.usableWh}
+          unit="Wh"
+          decimals={0}
+          formula={`(SOC − ${cutoff} %) · E_pachet`}
+          hint={`Controllerul motorului se oprește la ${cutoff} % SOC; energia de sub prag rămâne în pachet, dar nu mai mișcă mașina.`}
+          tone={toneBelow(snapshot.usableWh, 700, 350)}
+        />
+        <StatTile
+          label="Energie totală în pachet"
           value={snapshot.remainingWh}
           unit="Wh"
           decimals={0}
-          formula="SOC% · E_pachet"
-          tone={toneBelow(snapshot.remainingWh, 1250, 750)}
+          formula="SOC · E_pachet"
+          hint="Inclusiv partea de sub pragul de oprire, care nu se poate folosi pentru mers."
         />
         <StatTile
           label="Autonomie"
           value={snapshot.rangeKm}
           unit="km"
           decimals={1}
-          formula="E_rămasă / consum din pachet"
+          formula="E_utilizabilă / consum din pachet"
+          hint={`Până la oprirea controllerului motorului, la ${cutoff} % SOC.`}
         />
         <StatTile
-          label="Timp până la golire"
+          label="Timp până la oprirea motorului"
           value={
-            snapshot.timeToEmptyS === null ? null : snapshot.timeToEmptyS / 60
+            snapshot.timeToCutoffS === null ? null : snapshot.timeToCutoffS / 60
           }
           unit="min"
           decimals={0}
-          formula="E_rămasă / P_baterie"
+          formula="E_utilizabilă / P_baterie"
           hint={
-            snapshot.timeToEmptyS === null
+            snapshot.timeToCutoffS === null
               ? 'Pachetul nu se descarcă acum (sau nu există putere de pachet validă).'
-              : formatDuration(snapshot.timeToEmptyS)
+              : `${formatDuration(snapshot.timeToCutoffS)} până la ${cutoff} % SOC`
           }
         />
         <StatTile
@@ -200,7 +211,12 @@ export function ConsumptionPanel() {
           unit="%"
           decimals={1}
           formula="SOC + rată · 30"
-          tone={toneBelow(snapshot.projectedSoc30MinPct, 25, 12)}
+          hint={`Sub ${cutoff} % controllerul motorului se oprește.`}
+          tone={toneBelow(
+            snapshot.projectedSoc30MinPct,
+            cutoff + 10,
+            cutoff + 3,
+          )}
         />
         <StatTile
           label="Variație SOC"

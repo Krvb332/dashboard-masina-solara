@@ -36,6 +36,12 @@ export type VehicleParameters = {
   drivetrainEfficiency: number
   /** Energia nominală a pachetului, în Wh. */
   packEnergyWh: number
+  /**
+   * Starea de încărcare sub care controllerul motorului se oprește, în %.
+   * Energia de sub acest prag există în pachet, dar nu mai mișcă mașina:
+   * autonomia și timpul până la oprire se calculează doar din ce este deasupra.
+   */
+  motorCutoffSocPct: number
   /** Capacitatea nominală a pachetului, în Ah. */
   packCapacityAh: number
   /** Consumul constant al electronicii de bord, în W. */
@@ -59,6 +65,7 @@ export const VEHICLE: VehicleParameters = {
   dragArea: 0.12,
   drivetrainEfficiency: 0.92,
   packEnergyWh: 5000,
+  motorCutoffSocPct: 45,
   packCapacityAh: 45,
   auxiliaryLoadW: 40,
   wheelDiameterM: 0.548,
@@ -192,7 +199,26 @@ export function remainingEnergyWh(
   return ((socPct as number) / 100) * packEnergyWh
 }
 
-/** Câți km mai poți parcurge cu energia rămasă, la consumul specific dat. */
+/**
+ * Energia pe care mașina o mai poate folosi pentru propulsie, în Wh: partea
+ * de deasupra pragului la care controllerul motorului se oprește.
+ *
+ * Sub prag întoarce `0`, nu `null`: pachetul nu este gol, dar pentru mers nu
+ * mai are nimic — un zero real, pe care autonomia trebuie să îl arate ca atare.
+ */
+export function usableEnergyWh(
+  socPct: number | null,
+  cutoffSocPct = VEHICLE.motorCutoffSocPct,
+  packEnergyWh = VEHICLE.packEnergyWh,
+): number | null {
+  if (!allFinite(socPct, cutoffSocPct, packEnergyWh)) return null
+  if ((socPct as number) < 0 || (socPct as number) > 100) return null
+  if (cutoffSocPct < 0 || cutoffSocPct >= 100) return null
+  const usableFraction = Math.max(0, (socPct as number) - cutoffSocPct) / 100
+  return usableFraction * packEnergyWh
+}
+
+/** Câți km mai poți parcurge cu energia utilizabilă, la consumul specific dat. */
 export function rangeKm(
   remainingWh: number | null,
   whPerKm: number | null,
@@ -203,7 +229,9 @@ export function rangeKm(
 }
 
 /**
- * În cât timp se golește pachetul la puterea scoasă din el acum, în secunde.
+ * În cât timp se consumă energia dată la puterea scoasă din pachet acum, în
+ * secunde. Cu energia utilizabilă în loc de cea rămasă, rezultatul este timpul
+ * până la oprirea controllerului motorului, nu până la pachetul gol.
  *
  * `packDrawW` este puterea **netă** care iese din pachet (`battery_power_w`,
  * pozitivă la descărcare). Solarul este deja scăzut din ea de către magistrală,
@@ -352,7 +380,10 @@ export function economicSpeedKph(
 ): number | null {
   const denominator = airDensity * vehicle.dragArea
   if (denominator <= 0 || vehicle.auxiliaryLoadW <= 0) return null
-  if (!finite(vehicle.drivetrainEfficiency) || vehicle.drivetrainEfficiency <= 0) {
+  if (
+    !finite(vehicle.drivetrainEfficiency) ||
+    vehicle.drivetrainEfficiency <= 0
+  ) {
     return null
   }
   return (

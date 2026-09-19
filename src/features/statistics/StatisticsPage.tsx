@@ -88,7 +88,8 @@ export function StatisticsPage() {
           value={snapshot.rangeKm}
           unit="km"
           decimals={1}
-          formula="E_rămasă / consum din pachet"
+          formula="E_utilizabilă / consum din pachet"
+          hint={`Până la oprirea controllerului motorului, la ${snapshot.motorCutoffSocPct} % SOC.`}
           tone={toneBelow(snapshot.rangeKm, 40, 15)}
         />
       </section>
