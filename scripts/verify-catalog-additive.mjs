@@ -28,6 +28,59 @@ const CATALOG_PATH = 'server/app/signals.py'
  * dispariții *accidentale*; o retragere decisă de echipă se consemnează aici,
  * ca verificarea să rămână strictă pentru tot restul.
  */
+/**
+ * Praguri schimbate deliberat, decise de echipă. Fiecare intrare spune exact ce
+ * câmp, de la ce valoare la ce valoare; orice altă modificare a unui câmp
+ * protejat rămâne o eroare.
+ */
+const APPROVED_CHANGES = [
+  {
+    keys: /^cell_\d{2}_v$|^cell_voltage_max_v$/,
+    field: 'warn_above',
+    from: 4.15,
+    to: 4.25,
+    reason: 'echipa: până la 4,25 V nu este o problemă (18.09.2026)',
+  },
+  {
+    keys: /^cell_\d{2}_v$|^cell_voltage_max_v$/,
+    field: 'crit_above',
+    from: 4.22,
+    to: 4.3,
+    reason: 'pragul critic urcă odată cu cel de avertizare',
+  },
+  {
+    keys: /^cell_\d{2}_v$|^cell_voltage_(min|max)_v$/,
+    field: 'max',
+    from: 4.3,
+    to: 4.35,
+    reason: 'domeniul senzorului trebuie să cuprindă pragul critic',
+  },
+  {
+    keys: /^battery_current_a$/,
+    field: 'warn_above',
+    from: 75,
+    to: 45,
+    reason: 'echipa: până la 45 A nu este supracurent (18.09.2026)',
+  },
+  {
+    keys: /^battery_current_a$/,
+    field: 'crit_above',
+    from: 95,
+    to: 56,
+    reason: '1,25 × pragul de avertizare, ca pe serverul live',
+  },
+]
+
+function isApproved(key, field, was, now) {
+  return APPROVED_CHANGES.some(
+    (change) =>
+      change.keys.test(key) &&
+      change.field === field &&
+      change.from === was &&
+      change.to === now,
+  )
+}
+
 const RETIRED_SIGNALS = new Map([
   ['mppt3_power_w', 'mașina are doar două convertoare MPPT'],
   ['mppt4_power_w', 'mașina are doar două convertoare MPPT'],
@@ -137,6 +190,7 @@ function main() {
       const was = fieldOf(signal, field)
       const now = fieldOf(current, field)
       if (was !== now) {
+        if (isApproved(signal.key, field, was, now)) continue
         problems.push(
           `Semnalul „${signal.key}": câmpul „${field}" s-a schimbat din ${JSON.stringify(was)} în ${JSON.stringify(now)}.`,
         )
