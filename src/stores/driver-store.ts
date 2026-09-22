@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { EMPTY_TOTALS, type AnalyticsTotals } from '../lib/analytics'
@@ -13,7 +14,7 @@ import {
   type DriverProfile,
   type DriverStint,
 } from '../lib/driver-profiles'
-import { safeStorage } from '../lib/safe-storage'
+import { driverStorage } from '../lib/driver-storage'
 
 /**
  * Piloții și stinturile lor.
@@ -32,8 +33,17 @@ import { safeStorage } from '../lib/safe-storage'
  * închide cu bilanțul lui complet, cel nou se deschide pe contoarele curente.
  * Nu există o stare intermediară în care mașina merge fără pilot atribuit.
  *
- * Datele se păstrează în `localStorage`: o reîmprospătare a paginii în mijlocul
- * cursei nu are voie să șteargă istoricul piloților.
+ * Datele se păstrează pe SERVER, cu o copie locală ca rezervă (vezi
+ * `lib/driver-storage.ts`). Ținute doar în `localStorage`, ele trăiau în
+ * browserul fiecărui ecran: în boxă, laptopul din pitwall, telefonul
+ * inginerului și ecranul mare vedeau fiecare altă listă de piloți, iar unul
+ * deschis prima oară pornea gol. Interfața e servită de server, deci și lista
+ * de piloți vine de acolo.
+ *
+ * Hidratarea devine astfel asincronă: store-ul pornește gol și se umple când
+ * răspunde serverul. Cine ia decizii pe baza listei (crearea automată a unui
+ * pilot la primul flux de date) trebuie să aștepte `hasHydrated`, altfel un
+ * ecran nou ar inventa „Pilot 2" peste pilotul real, aflat la volan.
  */
 
 /** Cheia sub care se salvează piloții. Expusă pentru teste și pentru export. */
@@ -434,9 +444,10 @@ export const useDriverStore = create<DriverStore>()(
     {
       name: DRIVER_STORAGE_KEY,
       version: 1,
-      // Nu `localStorage` direct: vezi `lib/safe-storage.ts` pentru de ce el
-      // poate lipsi sau arunca chiar și într-un browser obișnuit.
-      storage: createJSONStorage(() => safeStorage()),
+      // Serverul, cu `localStorage` ca rezervă când nu răspunde. Nu
+      // `localStorage` direct: acolo, piloții rămâneau pe ecranul care i-a
+      // creat și nu ajungeau niciodată pe celelalte.
+      storage: createJSONStorage(() => driverStorage),
       // Funcțiile nu se serializează, iar stintul activ trebuie să
       // supraviețuiască unei reîmprospătări în mijlocul cursei.
       partialize: (state) => ({
@@ -449,6 +460,35 @@ export const useDriverStore = create<DriverStore>()(
     },
   ),
 )
+
+/**
+ * Starea piloților a sosit de la server (sau s-a constatat că nu răspunde și
+ * s-a căzut pe copia locală)?
+ *
+ * Până atunci, store-ul arată valorile implicite — listă goală, nimeni la
+ * volan — care NU înseamnă „nu există piloți", ci „încă nu știm". Orice
+ * decizie automată luată pe baza lor este greșită: `ensureDriver` ar crea un
+ * pilot nou pe un ecran care peste o secundă află că altcineva conduce deja.
+ */
+export function driversHydrated(): boolean {
+  return useDriverStore.persist.hasHydrated()
+}
+
+/**
+ * Aceeași informație, dar ca valoare reactivă: componenta se re-randează când
+ * starea chiar sosește. `hasHydrated()` citit o singură dată, într-un efect,
+ * rămâne „fals" pentru totdeauna pe ecranul care s-a deschis înaintea
+ * răspunsului serverului.
+ */
+export function useDriversHydrated(): boolean {
+  return useSyncExternalStore(
+    (onChange) => useDriverStore.persist.onFinishHydration(onChange),
+    () => useDriverStore.persist.hasHydrated(),
+    // La randarea pe server nu există stocare de citit; „nehidratat" este
+    // răspunsul corect și, mai ales, identic cu primul randat din browser.
+    () => false,
+  )
+}
 
 /** Profilul de la volan acum, dacă există. */
 export function activeDriver(): DriverProfile | null {

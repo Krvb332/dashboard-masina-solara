@@ -198,6 +198,13 @@ export type AnalyticsSnapshot = {
   /** Pragul de oprire al controllerului, în % SOC, ca interfața să îl afișeze. */
   motorCutoffSocPct: number
   rangeKm: number | null
+  /**
+   * Consumul pe care s-ar sprijini autonomia (recent, altfel pe sesiune).
+   * Rămâne completat și când `rangeKm` este `null` din cauza pragurilor de
+   * sens (`MIN_RANGE_WH_PER_KM`, `MIN_RANGE_SPEED_KPH`), ca interfața să spună
+   * de ce nu există o cifră.
+   */
+  rangeBasisWhPerKm: number | null
   /** În câte secunde se consumă energia utilizabilă la puterea din pachet acum. */
   timeToCutoffS: number | null
   socRatePctPerMin: number | null
@@ -238,6 +245,17 @@ const HARSH_RELEASE_FRACTION = 0.5
 const GRADE_WINDOW_MS = 30_000
 /** Sub această diferență, variația de altitudine este zgomot de receptor. */
 const ELEVATION_NOISE_M = 0.5
+/**
+ * Sub acest consum din pachet autonomia nu se estimează.
+ *
+ * Cu soare suficient sau cu mașina împinsă prin padoc, pachetul aproape nu se
+ * descarcă, iar `E_utilizabilă / consum` explodează: 0,5 Wh pe 300 m dau
+ * „1700 km". Nu este o măsurătoare, este o împărțire la aproape zero. Sub prag
+ * cifra rămâne „—", iar `rangeBasisWhPerKm` spune interfeței de ce.
+ */
+export const MIN_RANGE_WH_PER_KM = 2
+/** Sub această viteză medie mașina nu merge, deci consumul pe km nu descrie o cursă. */
+export const MIN_RANGE_SPEED_KPH = 5
 
 const EMPTY_TOTALS: AnalyticsTotals = {
   samples: 0,
@@ -789,12 +807,25 @@ export class TelemetryAnalytics {
 
     const gradeFraction = this.currentGrade()
 
+    const averageSpeedKph =
+      this.speeds.length > 0 ? mean(this.speeds.map(([, v]) => v)) : null
+
+    // Autonomia se sprijină pe consumul recent, nu pe media sesiunii: dacă
+    // pilotul tocmai a încetinit, cifra trebuie să reflecte decizia lui. Are
+    // sens doar la un ritm de mers și la un consum care chiar descarcă
+    // pachetul; altfel împărțirea dă mii de kilometri din câțiva metri.
+    const rangeBasis = recent ?? whPerKm
+    const rangeMeaningful =
+      rangeBasis !== null &&
+      rangeBasis >= MIN_RANGE_WH_PER_KM &&
+      averageSpeedKph !== null &&
+      averageSpeedKph >= MIN_RANGE_SPEED_KPH
+
     return {
       totals,
       live,
 
-      averageSpeedKph:
-        this.speeds.length > 0 ? mean(this.speeds.map(([, v]) => v)) : null,
+      averageSpeedKph,
       wheelSpeedKph: speedKphFromRpm(fresh(quality, 'motor_rpm'), this.vehicle),
       groundSpeedKph: speedKph,
       speedSource,
@@ -837,11 +868,10 @@ export class TelemetryAnalytics {
       remainingWh: remaining,
       usableWh: usable,
       motorCutoffSocPct: this.vehicle.motorCutoffSocPct,
-      // Autonomia se sprijină pe consumul recent, nu pe media sesiunii: dacă
-      // pilotul tocmai a încetinit, cifra trebuie să reflecte decizia lui. Și
-      // pe energia utilizabilă, nu pe cea rămasă: sub pragul controllerului
+      // Pe energia utilizabilă, nu pe cea rămasă: sub pragul controllerului
       // pachetul mai are energie, dar mașina nu mai merge.
-      rangeKm: rangeKm(usable, recent ?? whPerKm),
+      rangeKm: rangeMeaningful ? rangeKm(usable, rangeBasis) : null,
+      rangeBasisWhPerKm: rangeBasis,
       timeToCutoffS: timeToEmptyS(usable, pack),
       socRatePctPerMin:
         this.socSeries.length >= 10 ? ratePerMinute(this.socSeries) : null,

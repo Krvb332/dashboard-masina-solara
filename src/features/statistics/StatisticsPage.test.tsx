@@ -63,10 +63,6 @@ beforeEach(() => {
   resetTelemetryStore()
   resetDriverStore()
   useAnalyticsStore.getState().clear()
-  useAnalyticsStore.getState().setStrategy({
-    targetWhPerKm: null,
-    remainingDistanceKm: null,
-  })
 })
 
 afterEach(() => {
@@ -74,12 +70,6 @@ afterEach(() => {
 })
 
 describe('fără date de la mașină', () => {
-  it('spune explicit că nu are ce recomanda', () => {
-    renderPage()
-
-    expect(screen.getByText(/Fără date de la mașină/i)).toBeInTheDocument()
-  })
-
   it('nu afișează cifre derivate inventate', () => {
     renderPage()
 
@@ -140,25 +130,6 @@ describe('cu flux activ', () => {
       .find(Boolean) as HTMLElement
 
     expect(within(threshold).getByText('20,0')).toBeInTheDocument()
-  })
-
-  it('transmite pilotului o recomandare cu acțiune concretă', () => {
-    renderPage()
-
-    // 40 Wh/km față de 20 susținuți: dublu față de echilibru.
-    const advice = document.querySelector('[data-advice="energy-deficit"]')
-    expect(advice).not.toBeNull()
-    expect(advice?.textContent).toMatch(/condu mai economic/i)
-  })
-
-  it('reacționează imediat la o țintă de strategie nouă', () => {
-    renderPage()
-    expect(document.querySelector('[data-advice="range-short"]')).toBeNull()
-
-    useAnalyticsStore.getState().setStrategy({ remainingDistanceKm: 5000 })
-
-    renderPage()
-    expect(document.querySelector('[data-advice="range-short"]')).not.toBeNull()
   })
 
   it('randează graficele de consum, recuperare și bilanț', () => {

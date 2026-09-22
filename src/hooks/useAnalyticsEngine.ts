@@ -1,9 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { analytics } from '../lib/analytics'
 import { pushDerived } from '../lib/derived-buffer'
 import { registerAnalyticsControl } from '../lib/analytics-control'
 import { useAnalyticsStore } from '../stores/analytics-store'
-import { useDriverStore } from '../stores/driver-store'
+import {
+  driversHydrated,
+  useDriversHydrated,
+  useDriverStore,
+} from '../stores/driver-store'
+import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 
 /**
@@ -17,6 +22,11 @@ import { useTelemetryStore } from '../stores/telemetry-store'
  *
  * Ritmuri: acumulatorul primește eșantioane la 5 Hz (destul pentru integrarea
  * puterii, ieftin pentru browser), iar interfața primește snapshot-uri la 2 Hz.
+ *
+ * În timpul redării unei sesiuni motorul stă: integrează pe ceasul browserului,
+ * iar o redare la 10× sau pe pauză ar aduna energie care nu s-a consumat.
+ * Redarea are propriul acumulator, condus de `ReplayDriver` la timpul virtual
+ * al eșantioanelor, și publică în aceleași store-uri și buffere.
  */
 
 /** Ritmul de acumulare. */
@@ -31,6 +41,8 @@ export function useAnalyticsEngine(): void {
     let lastPublish = 0
 
     const tick = () => {
+      if (useSessionStore.getState().mode !== 'live') return
+
       const telemetry = useTelemetryStore.getState()
       const now = Date.now()
 
@@ -46,8 +58,18 @@ export function useAnalyticsEngine(): void {
 
       // Cineva conduce mașina din momentul în care curg date; dacă nu a fost
       // ales un pilot, se creează unul automat, ca stintul să nu se piardă.
-      if (telemetry.latest !== null) drivers.ensureDriver(context)
-      drivers.recordTotals(context)
+      //
+      // Dar nu înainte ca lista de piloți să sosească de la server: până
+      // atunci store-ul e gol pentru că nu știm încă, nu pentru că nu există
+      // nimeni. Un ecran deschis în timpul cursei ar inventa altfel „Pilot 2"
+      // peste pilotul real și ar tăia stintul în curs în două.
+      //
+      // Numai apelurile către piloți așteaptă; acumulatorul și graficele merg
+      // mai departe, fiindcă nu depind de cine e la volan.
+      if (driversHydrated()) {
+        if (telemetry.latest !== null) drivers.ensureDriver(context)
+        drivers.recordTotals(context)
+      }
 
       if (now - lastPublish >= PUBLISH_INTERVAL_MS) {
         lastPublish = now
@@ -76,9 +98,27 @@ export function useAnalyticsEngine(): void {
   // nu au ce căuta în bilanțul ei.
   const sessionId = useTelemetryStore((state) => state.sessionId)
   const vehicleId = useTelemetryStore((state) => state.vehicleId)
+  // Ultima sesiune LIVE văzută. În replay, store-ul poartă id-ul sesiunii
+  // redate; fără memoria asta, intrarea și ieșirea din replay ar tăia stintul
+  // pilotului și ar pune pe zero contoarele cursei în curs, de două ori.
+  const lastLiveKey = useRef<string | null>(null)
+  // Ca valoare reactivă, nu ca simplă verificare: efectul de mai jos rulează
+  // doar când se schimbă sesiunea sau mașina. Dacă piloții sosesc de la server
+  // DUPĂ ce au sosit acelea — cazul obișnuit, rețeaua e mai lentă decât
+  // primul cadru — o verificare neresctivă ar ieși o dată, devreme, și
+  // tăierea stintului nu s-ar mai face niciodată pentru sesiunea aceea.
+  const hydrated = useDriversHydrated()
 
   useEffect(() => {
     if (sessionId === null && vehicleId === null) return
+    if (useSessionStore.getState().mode !== 'live') return
+    // Aceeași regulă ca mai sus: fără piloții de pe server, tăierea ar lucra
+    // pe un stint care încă nu a fost încărcat.
+    if (!hydrated) return
+
+    const key = `${vehicleId ?? ''}|${sessionId ?? ''}`
+    if (lastLiveKey.current === key) return
+    lastLiveKey.current = key
 
     const drivers = useDriverStore.getState()
     // Stintul în curs se închide cu bilanțul lui și se redeschide pe zero,
@@ -87,5 +127,5 @@ export function useAnalyticsEngine(): void {
 
     analytics.reset()
     useAnalyticsStore.getState().clear()
-  }, [sessionId, vehicleId])
+  }, [hydrated, sessionId, vehicleId])
 }

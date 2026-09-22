@@ -167,3 +167,38 @@ export const EMPTY_STATS: StreamStats = {
   last_sequence: null,
   clock_offset_ms: 0,
 }
+
+/**
+ * Starea piloților, așa cum o ține serverul.
+ *
+ * Profilurile sunt validate câmp cu câmp; stinturile rămân obiecte libere,
+ * pentru că bilanțul lor conține contoarele acumulatorului de statistici, iar
+ * acelea cresc cu fiecare mărime derivată nouă. O schemă strictă aici ar
+ * respinge exact datele pe care trebuie să le păstrăm, la prima adăugare.
+ */
+export const driverProfileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  shortName: z.string(),
+  color: z.string(),
+  createdAt: z.number(),
+  auto: z.boolean().default(false),
+  note: z.string().default(''),
+})
+
+export const driverStateSchema = z.object({
+  profiles: z.array(driverProfileSchema).default([]),
+  stints: z.array(z.record(z.string(), z.unknown())).default([]),
+  activeDriverId: z.string().nullable().default(null),
+  activeStintId: z.string().nullable().default(null),
+  autoCreate: z.boolean().default(true),
+})
+
+export const driverStateEnvelopeSchema = z.object({
+  /** Crește la fiecare scriere acceptată; garda împotriva suprascrierii oarbe. */
+  rev: z.number().int().nonnegative().default(0),
+  updated_at: isoDateTime.nullable().default(null),
+  state: driverStateSchema,
+})
+
+export type DriverStateEnvelope = z.infer<typeof driverStateEnvelopeSchema>

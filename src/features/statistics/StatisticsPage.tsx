@@ -1,4 +1,3 @@
-import { CoachingPanel } from '../../components/CoachingPanel'
 import { ConsumptionPanel } from '../../components/ConsumptionPanel'
 import { ElevationProfileChart } from '../../components/ElevationProfile'
 import { Panel } from '../../components/Panel'
@@ -8,21 +7,21 @@ import { TelemetryChart } from '../../components/TelemetryChart'
 import { DERIVED_SIGNALS, derivedBuffer } from '../../lib/derived-buffer'
 import { formatNumber, NO_VALUE } from '../../lib/format'
 import { sustainableWhPerKm } from '../../lib/coaching'
+import { MIN_RANGE_SPEED_KPH, MIN_RANGE_WH_PER_KM } from '../../lib/analytics'
 import { useAnalyticsStore } from '../../stores/analytics-store'
 import { useDriverStore } from '../../stores/driver-store'
 
 /**
- * Pagina de decizie rapidă: numai grafice, cifre derivate și ce are pilotul de
- * făcut. Fără liste de senzori și fără tabele de diagnostic — acelea au pagina
- * lor, iar aici ar întârzia exact decizia pentru care s-a deschis pagina.
+ * Pagina de decizie rapidă: numai grafice și cifre derivate. Fără liste de
+ * senzori și fără tabele de diagnostic — acelea au pagina lor, iar aici ar
+ * întârzia exact decizia pentru care s-a deschis pagina.
  *
- * Ordinea de pe ecran este ordinea întrebărilor din boxă: ce facem acum, cât
- * consumăm, cum evoluează, cine conduce.
+ * Ordinea de pe ecran este ordinea întrebărilor din boxă: cât consumăm, cum
+ * evoluează, cine conduce. Recomandările pentru pilot nu se mai afișează aici;
+ * modulul `lib/coaching.ts` rămâne pentru calculul aportului solar pe km.
  */
 export function StatisticsPage() {
   const snapshot = useAnalyticsStore((state) => state.snapshot)
-  const strategy = useAnalyticsStore((state) => state.strategy)
-  const setStrategy = useAnalyticsStore((state) => state.setStrategy)
 
   const sustainable = sustainableWhPerKm(
     snapshot.solarW,
@@ -31,17 +30,8 @@ export function StatisticsPage() {
 
   return (
     <>
-      <section className="mt-7" aria-label="Recomandări pentru pilot">
-        <Panel
-          title="Ce transmitem pilotului"
-          subtitle="Cea mai gravă observație, cu cifra din spatele ei"
-        >
-          <CoachingPanel />
-        </Panel>
-      </section>
-
       <section
-        className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
         aria-label="Indicatori de decizie"
       >
         <StatTile
@@ -89,12 +79,16 @@ export function StatisticsPage() {
           unit="km"
           decimals={1}
           formula="E_utilizabilă / consum din pachet"
-          hint={`Până la oprirea controllerului motorului, la ${snapshot.motorCutoffSocPct} % SOC.`}
+          hint={
+            snapshot.rangeKm === null && snapshot.rangeBasisWhPerKm !== null
+              ? `Consum din pachet ${formatNumber(snapshot.rangeBasisWhPerKm, 1)} Wh/km. Autonomia se estimează doar peste ${MIN_RANGE_WH_PER_KM} Wh/km și ${MIN_RANGE_SPEED_KPH} km/h medie: altfel pachetul aproape nu se descarcă și împărțirea ar da mii de kilometri.`
+              : `Până la oprirea controllerului motorului, la ${snapshot.motorCutoffSocPct} % SOC.`
+          }
           tone={toneBelow(snapshot.rangeKm, 40, 15)}
         />
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
+      <section className="mt-4">
         <Panel
           title="Pachet: putere și recuperare"
           subtitle="Cât iese din pachet, cât întoarce frâna regenerativă și bilanțul net"
@@ -111,57 +105,6 @@ export function StatisticsPage() {
             height={260}
             ariaLabel="Grafic cu puterea consumată, puterea recuperată și bilanțul de putere"
           />
-        </Panel>
-
-        <Panel
-          title="Ținta de strategie"
-          subtitle="Se aplică imediat în recomandări"
-        >
-          <div className="grid gap-3">
-            <label className="grid gap-1 text-sm text-zinc-300">
-              Consum-țintă (Wh/km)
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={strategy.targetWhPerKm ?? ''}
-                onChange={(event) =>
-                  setStrategy({
-                    targetWhPerKm:
-                      event.target.value === ''
-                        ? null
-                        : Number(event.target.value),
-                  })
-                }
-                className="min-h-11 rounded-xl border border-white/10 bg-black/25 px-3 text-sm text-white"
-              />
-            </label>
-
-            <label className="grid gap-1 text-sm text-zinc-300">
-              Distanță rămasă (km)
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={strategy.remainingDistanceKm ?? ''}
-                onChange={(event) =>
-                  setStrategy({
-                    remainingDistanceKm:
-                      event.target.value === ''
-                        ? null
-                        : Number(event.target.value),
-                  })
-                }
-                className="min-h-11 rounded-xl border border-white/10 bg-black/25 px-3 text-sm text-white"
-              />
-            </label>
-
-            <p className="text-xs leading-5 text-zinc-500">
-              Câmpurile goale înseamnă „fără țintă impusă": recomandările se
-              raportează atunci doar la pragul de echilibru solar, care nu are
-              nevoie de nicio setare.
-            </p>
-          </div>
         </Panel>
       </section>
 

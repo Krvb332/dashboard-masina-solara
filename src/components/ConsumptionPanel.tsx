@@ -4,6 +4,7 @@ import {
   compressPackPowerW,
   isPackPowerCompressed,
 } from '../lib/power-scale'
+import { MIN_RANGE_SPEED_KPH, MIN_RANGE_WH_PER_KM } from '../lib/analytics'
 import { useAnalyticsStore } from '../stores/analytics-store'
 import { StatTile } from './StatTile'
 import { toneAbove, toneBelow } from '../lib/stat-tone'
@@ -192,7 +193,11 @@ export function ConsumptionPanel() {
           unit="km"
           decimals={1}
           formula="E_utilizabilă / consum din pachet"
-          hint={`Până la oprirea controllerului motorului, la ${cutoff} % SOC.`}
+          hint={
+            snapshot.rangeKm === null && snapshot.rangeBasisWhPerKm !== null
+              ? `Consum din pachet ${formatNumber(snapshot.rangeBasisWhPerKm, 1)} Wh/km. Autonomia se estimează doar peste ${MIN_RANGE_WH_PER_KM} Wh/km și ${MIN_RANGE_SPEED_KPH} km/h medie: altfel pachetul aproape nu se descarcă și împărțirea ar da mii de kilometri.`
+              : `Până la oprirea controllerului motorului, la ${cutoff} % SOC.`
+          }
         />
         <StatTile
           label="Timp până la oprirea motorului"

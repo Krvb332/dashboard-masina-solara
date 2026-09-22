@@ -1,10 +1,12 @@
 import {
   alarmSchema,
+  driverStateEnvelopeSchema,
   healthSchema,
   sampleSchema,
   sessionInfoSchema,
   signalCatalogSchema,
   type Alarm,
+  type DriverStateEnvelope,
   type Health,
   type Sample,
   type SessionInfo,
@@ -236,4 +238,34 @@ export function fetchWeather(
 
 export function exportUrl(sessionId: string): string {
   return `${API_URL}/api/v1/sessions/${encodeURIComponent(sessionId)}/export.csv`
+}
+
+/**
+ * Piloții și stinturile lor, ținute pe server.
+ *
+ * Erau în `localStorage`, adică în browserul fiecărui ecran. Într-o boxă asta
+ * însemna că laptopul din pitwall, telefonul inginerului și ecranul mare
+ * arătau fiecare altă listă, iar unul deschis prima oară pornea gol. Interfața
+ * este servită de acest server, deci și lista de piloți vine de la el.
+ */
+export function fetchDriverState(): Promise<DriverStateEnvelope> {
+  return request('/api/v1/drivers', driverStateEnvelopeSchema)
+}
+
+/**
+ * Scrie instantaneul piloților. `rev` este revizia de la care pornește
+ * scrierea: dacă altcineva a scris între timp, serverul răspunde 409 și
+ * `ApiError.status` o spune, ca apelantul să se reîmprospăteze și să reia.
+ */
+export function saveDriverState(
+  state: DriverStateEnvelope['state'],
+  rev: number,
+): Promise<DriverStateEnvelope> {
+  return request('/api/v1/drivers', driverStateEnvelopeSchema, {
+    // POST, nu PUT: restul API-ului folosește POST pentru mutații, iar CORS
+    // este deschis exact pentru GET, POST și OPTIONS.
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rev, state }),
+  })
 }

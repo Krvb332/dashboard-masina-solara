@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { watchDriverStateFlush } from '../lib/driver-storage'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAnalyticsEngine } from '../hooks/useAnalyticsEngine'
 import { useErrorLog } from '../hooks/useErrorLog'
@@ -84,6 +85,11 @@ export function AppShell() {
   const recordingSessionId = useTelemetryStore(
     (state) => state.recordingSessionId,
   )
+
+  // Ce nu a apucat să plece spre server (schimbarea de pilot se trimite cu o
+  // întârziere de câteva secunde, ca să nu inundăm rețeaua) pleacă acum, când
+  // fila se ascunde sau se închide.
+  useEffect(() => watchDriverStateFlush(), [])
 
   useEffect(() => setMenuOpen(false), [location.pathname])
 

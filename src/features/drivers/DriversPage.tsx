@@ -1,9 +1,15 @@
+import { useSyncExternalStore } from 'react'
 import { DriverPanel } from '../../components/DriverPanel'
 import { Panel } from '../../components/Panel'
 import { StatTile } from '../../components/StatTile'
-import { isMemoryOnly } from '../../lib/safe-storage'
+import {
+  driverSyncStatus,
+  onDriverSyncChange,
+  type DriverSyncStatus,
+} from '../../lib/driver-storage'
+import { formatClock } from '../../lib/format'
 import { useAnalyticsStore } from '../../stores/analytics-store'
-import { useDriverStore } from '../../stores/driver-store'
+import { useDriverStore, useDriversHydrated } from '../../stores/driver-store'
 
 /**
  * Piloții: cine urcă la volan, cine a condus și cu ce consum.
@@ -13,6 +19,7 @@ import { useDriverStore } from '../../stores/driver-store'
  * schimbare, nu media zilei.
  */
 export function DriversPage() {
+  const hydrated = useDriversHydrated()
   const stints = useDriverStore((state) => state.stints)
   const activeStintId = useDriverStore((state) => state.activeStintId)
   const activeDriverId = useDriverStore((state) => state.activeDriverId)
@@ -107,18 +114,69 @@ export function DriversPage() {
         <Panel
           title="Profiluri"
           subtitle="Creare manuală, creare în masă și schimbarea pilotului"
+          action={<SyncBadge />}
         >
-          <DriverPanel />
+          {hydrated ? (
+            <DriverPanel />
+          ) : (
+            <p className="text-sm text-zinc-500">
+              Se încarcă piloții de pe server…
+            </p>
+          )}
         </Panel>
       </section>
-
-      {isMemoryOnly() && (
-        <p className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-100">
-          Browserul nu permite stocare locală, deci piloții și stinturile se
-          pierd la reîncărcarea paginii. Totul funcționează în sesiunea curentă;
-          exportă înainte să închizi fila.
-        </p>
-      )}
     </>
+  )
+}
+
+/**
+ * Starea sincronizării cu serverul.
+ *
+ * Piloții sunt aceiași pe toate ecranele pentru că serverul îi ține, nu
+ * browserul. Când serverul nu răspunde, interfața continuă să funcționeze din
+ * copia locală — dar atunci ce se vede este doar al acestui ecran, iar asta
+ * trebuie spus, nu ascuns: altfel cineva schimbă pilotul în boxă și crede că
+ * l-au văzut și ceilalți.
+ */
+function SyncBadge() {
+  const status = useSyncExternalStore<DriverSyncStatus>(
+    onDriverSyncChange,
+    driverSyncStatus,
+    driverSyncStatus,
+  )
+
+  if (status.state === 'offline') {
+    return (
+      <span
+        className="rounded-lg border border-amber-400/25 bg-amber-500/[0.08] px-3 py-1.5 text-xs text-amber-100"
+        title={status.reason ?? undefined}
+        data-sync="offline"
+      >
+        Doar pe acest ecran — serverul nu răspunde
+      </span>
+    )
+  }
+
+  if (status.state === 'synced') {
+    return (
+      <span
+        className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-400"
+        data-sync="synced"
+      >
+        Salvat pe server
+        {status.lastSyncedAt === null
+          ? ''
+          : ` · ${formatClock(status.lastSyncedAt)}`}
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-500"
+      data-sync={status.state}
+    >
+      Se sincronizează…
+    </span>
   )
 }

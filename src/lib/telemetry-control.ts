@@ -74,8 +74,9 @@ export function isTelemetryControlReady(): boolean {
 export function resetTelemetry(): void {
   if (useSessionStore.getState().mode === 'replay') {
     // `exit()` face deja golirea bufferului și a store-ului, dar o repetăm mai
-    // jos oricum: pașii trebuie să fie identici în ambele moduri.
-    replayDriver.exit()
+    // jos oricum: pașii trebuie să fie identici în ambele moduri. Fără
+    // resincronizare: omul a cerut ecran curat, nu istoricul serverului.
+    replayDriver.exit({ resync: false })
   }
 
   resetBuffer()

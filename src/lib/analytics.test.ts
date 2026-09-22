@@ -296,18 +296,21 @@ describe('puterea din pachet și bilanțul de putere', () => {
     const analytics = new TelemetryAnalytics()
     feed(analytics, 1000, [
       {
+        vehicle_speed_kph: valid(45),
         energy_consumed_wh: valid(0),
         distance_km: valid(0),
         battery_soc_pct: valid(65),
       },
       {
+        vehicle_speed_kph: valid(45),
         energy_consumed_wh: valid(40),
         distance_km: valid(2),
         battery_soc_pct: valid(65),
       },
     ])
 
-    // 20 Wh/km; 65 % − 45 % = 20 % din 5000 Wh = 1000 Wh → 50 km, nu 162 km.
+    // 20 Wh/km la ritm de cursă; 65 % − 45 % = 20 % din 5000 Wh = 1000 Wh
+    // → 50 km, nu 162 km.
     expect(analytics.snapshot().rangeKm).toBeCloseTo(50, 9)
   })
 
@@ -315,11 +318,13 @@ describe('puterea din pachet și bilanțul de putere', () => {
     const analytics = new TelemetryAnalytics()
     feed(analytics, 1000, [
       {
+        vehicle_speed_kph: valid(45),
         energy_consumed_wh: valid(0),
         distance_km: valid(0),
         battery_soc_pct: valid(40),
       },
       {
+        vehicle_speed_kph: valid(45),
         energy_consumed_wh: valid(40),
         distance_km: valid(2),
         battery_soc_pct: valid(40),
@@ -572,5 +577,52 @@ describe('întreruperea fluxului', () => {
     }
     expect(analytics.snapshot().live).toBe(false)
     expect(analytics.snapshot().whPerKm).toBeNull()
+  })
+})
+
+describe('autonomia are nevoie de un consum real', () => {
+  it('nu se estimează din câțiva metri împinși cu pachetul aproape neatins', () => {
+    const analytics = new TelemetryAnalytics()
+    // 40 rpm ≈ 4,1 km/h timp de cinci minute, pachetul la 97 %, 0,5 Wh scoși
+    // în total. Fără prag: 2600 Wh împărțiți la ~1,5 Wh/km ar da ~1700 km —
+    // o cifră inventată dintr-o plimbare prin padoc.
+    for (let step = 0; step <= 1500; step += 1) {
+      analytics.update({
+        timeMs: step * 200,
+        quality: {
+          motor_rpm: valid(40),
+          battery_soc_pct: valid(97),
+          energy_consumed_wh: valid((step * 0.5) / 1500),
+        },
+      })
+    }
+
+    const snapshot = analytics.snapshot()
+    expect(snapshot.rangeBasisWhPerKm).not.toBeNull()
+    expect(snapshot.rangeBasisWhPerKm as number).toBeLessThan(2)
+    expect(snapshot.rangeKm).toBeNull()
+  })
+
+  it('se estimează la un ritm de cursă', () => {
+    const analytics = new TelemetryAnalytics()
+    // 45 km/h și 20 Wh/km net timp de cinci minute, SOC 97 %: energia
+    // utilizabilă (97 − 45) % · 5000 Wh = 2600 Wh ajunge pentru 130 km.
+    for (let step = 0; step <= 1500; step += 1) {
+      const hours = (step * 0.2) / 3600
+      const distanceKm = 45 * hours
+      analytics.update({
+        timeMs: step * 200,
+        quality: {
+          vehicle_speed_kph: valid(45),
+          battery_soc_pct: valid(97),
+          distance_km: valid(distanceKm),
+          energy_consumed_wh: valid(20 * distanceKm),
+        },
+      })
+    }
+
+    const snapshot = analytics.snapshot()
+    expect(snapshot.rangeBasisWhPerKm).toBeCloseTo(20, 6)
+    expect(snapshot.rangeKm).toBeCloseTo(130, 6)
   })
 })

@@ -19,6 +19,13 @@ export class QualityTracker {
     this.lastSeen.clear()
   }
 
+  /** Copie independentă, pentru punctele de control ale redării. */
+  clone(): QualityTracker {
+    const copy = new QualityTracker()
+    for (const [key, entry] of this.lastSeen) copy.lastSeen.set(key, entry)
+    return copy
+  }
+
   observe(sample: Sample, timeMs: number): void {
     for (const [key, value] of Object.entries(sample.signals)) {
       this.lastSeen.set(key, { time: timeMs, value })

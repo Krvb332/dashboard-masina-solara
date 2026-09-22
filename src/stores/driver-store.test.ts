@@ -429,6 +429,76 @@ describe('persistență', () => {
     expect(parsed.state.profiles).toHaveLength(1)
     expect(parsed.state.stints).toHaveLength(1)
   })
+
+  /**
+   * Testul de mai sus verifică doar SCRIEREA: că datele ajung în stocare.
+   * Reîmprospătarea reală înseamnă că modulul store-ului se creează din nou și
+   * `persist` îl umple din ce a găsit în stocare — exact ce face
+   * `useDriverStore.persist.rehydrate()`, singura cale de a exercita acel drum
+   * fără să repornească procesul de test. Fără acest test, o greșeală care
+   * lasă datele scrise corect dar rupe citirea lor înapoi (o cheie omisă din
+   * `partialize`, un `name` schimbat) ar trece nedetectată.
+   */
+  it('rehidratarea dintr-o stocare existentă reface exact starea salvată', async () => {
+    const [andrei, maria] = store().importRoster([
+      'Andrei Pop',
+      'Maria Ionescu',
+    ])
+    store().selectDriver(andrei.id, context({}, 1000))
+    store().recordTotals(
+      context(
+        { distanceKm: 12, energyConsumedWh: 300, activeSeconds: 900 },
+        2000,
+      ),
+    )
+    store().setAutoCreate(false)
+
+    const inainte = {
+      profiles: store().profiles,
+      stints: store().stints,
+      activeDriverId: store().activeDriverId,
+      activeStintId: store().activeStintId,
+      autoCreate: store().autoCreate,
+    }
+
+    // Simulează repornirea de proces: starea din memorie dispare, dar
+    // stocarea supraviețuiește reîncărcării — exact ca `localStorage`.
+    // `setState` trece prin `set`-ul învelit de `persist`, deci golirea
+    // memoriei ar rescrie și stocarea; salvăm bytes-ii dinainte și îi punem
+    // înapoi după, ca la o reîncărcare reală, unde nimic din pagina veche nu
+    // mai apucă să scrie ceva.
+    const dinStocare = safeStorage().getItem(DRIVER_STORAGE_KEY)
+    useDriverStore.setState({
+      profiles: [],
+      stints: [],
+      activeDriverId: null,
+      activeStintId: null,
+      autoCreate: true,
+    })
+    if (dinStocare !== null)
+      safeStorage().setItem(DRIVER_STORAGE_KEY, dinStocare)
+
+    await useDriverStore.persist.rehydrate()
+
+    expect(store().profiles).toEqual(inainte.profiles)
+    expect(store().stints).toEqual(inainte.stints)
+    expect(store().activeDriverId).toBe(andrei.id)
+    expect(store().activeStintId).toBe(inainte.activeStintId)
+    expect(store().autoCreate).toBe(false)
+    // Pilotul care nu era la volan nu a fost uitat pe drum.
+    expect(store().profiles.map((profile) => profile.name)).toContain(
+      maria.name,
+    )
+  })
+
+  it('un browser fără stocare locală nu blochează rehidratarea', async () => {
+    safeStorage().setItem(DRIVER_STORAGE_KEY, '{not json')
+
+    // Nu are voie să arunce: o stocare coruptă degradează la starea implicită,
+    // nu la un ecran alb.
+    await expect(useDriverStore.persist.rehydrate()).resolves.not.toThrow()
+    expect(store().profiles).toEqual([])
+  })
 })
 
 describe('ștergerea stinturilor', () => {

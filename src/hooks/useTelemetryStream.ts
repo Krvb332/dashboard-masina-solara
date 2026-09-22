@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
-import { API_TOKEN, WS_URL, fetchCatalog } from '../lib/api'
+import { API_TOKEN, WS_URL, fetchCatalog, fetchHistory } from '../lib/api'
+import { registerReplayExitHook } from '../lib/replay-driver'
 import {
   consumeSnapshotHistoryDiscard,
   registerTelemetryControl,
@@ -103,15 +104,37 @@ export function useTelemetryStream(): void {
       },
     })
 
+    // La ieșirea din replay bufferul este gol, iar la 1–4 Hz ar dura minute
+    // până ar avea din nou un grafic. Serverul ține ultimele eșantioane în
+    // memorie, exact ce trimite și la o conectare nouă; le cerem pe REST, fără
+    // să rupem legătura. Datele sunt cele măsurate, nu o umplere artificială.
+    const unregisterExit = registerReplayExitHook(() => {
+      void fetchHistory({ limit: 1200 })
+        .then((samples) => {
+          if (useSessionStore.getState().mode !== 'live') return
+          if (samples.length === 0) return
+          resetBuffer()
+          pushSamples(samples)
+          lastPushedAt.current = samples.at(-1)?.server_received_at ?? null
+        })
+        .catch((error: unknown) => {
+          console.warn('Istoricul live nu a putut fi reîncărcat:', error)
+        })
+    })
+
     const timer = setInterval(() => {
       const frame = pendingFrame.current
       if (frame === null) return
       pendingFrame.current = null
+      // Un cadru rămas de dinaintea trecerii în replay nu are voie să
+      // suprascrie starea redată.
+      if (useSessionStore.getState().mode !== 'live') return
       applyFrame(frame)
     }, STORE_INTERVAL_MS)
 
     return () => {
       clearInterval(timer)
+      unregisterExit()
       unregister()
       client.close()
     }
