@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Pause, Play, SkipBack, X } from 'lucide-react'
+import { STATIC_REPLAY } from '../lib/api'
 import { formatDuration } from '../lib/format'
 import { replayDriver } from '../lib/replay-driver'
 import { REPLAY_SPEEDS, useSessionStore } from '../stores/session-store'
@@ -71,14 +72,16 @@ export function ReplayControls() {
 
         <p className="truncate text-xs text-zinc-500">{session?.id}</p>
 
-        <button
-          type="button"
-          onClick={() => replayDriver.exit()}
-          className="ml-auto flex min-h-11 items-center gap-2 rounded-xl bg-white/5 px-4 text-sm text-zinc-300 transition-colors hover:bg-white/10"
-        >
-          <X size={16} aria-hidden="true" />
-          Înapoi la live
-        </button>
+        {!STATIC_REPLAY && (
+          <button
+            type="button"
+            onClick={() => replayDriver.exit()}
+            className="ml-auto flex min-h-11 items-center gap-2 rounded-xl bg-white/5 px-4 text-sm text-zinc-300 transition-colors hover:bg-white/10"
+          >
+            <X size={16} aria-hidden="true" />
+            Înapoi la live
+          </button>
+        )}
       </div>
 
       <label className="mt-3 block">

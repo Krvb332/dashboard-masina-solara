@@ -4,7 +4,7 @@ import { CircleStop, Download, Play, Radio } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Panel } from '../../components/Panel'
 import { SESSIONS_QUERY_KEY, useRecording } from '../../hooks/useRecording'
-import { exportUrl, fetchSessions } from '../../lib/api'
+import { STATIC_REPLAY, exportUrl, fetchSessions } from '../../lib/api'
 import { formatDateTime, formatDuration, formatNumber } from '../../lib/format'
 import { describeRecordingError } from '../../lib/recording'
 import { replayDriver } from '../../lib/replay-driver'
@@ -51,55 +51,57 @@ export function SessionsPage() {
 
   return (
     <>
-      <section className="mt-7">
-        <Panel
-          title="Înregistrare"
-          subtitle={
-            recordingSessionId
-              ? `Sesiune activă: ${recordingSessionId}`
-              : 'Nicio înregistrare în curs'
-          }
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="text"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Notă (opțional): tur de probă, cursă, test frâne…"
-              disabled={Boolean(recordingSessionId)}
-              className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/25 px-4 text-sm text-white placeholder:text-zinc-600 disabled:opacity-50"
-            />
+      {!STATIC_REPLAY && (
+        <section className="mt-7">
+          <Panel
+            title="Înregistrare"
+            subtitle={
+              recordingSessionId
+                ? `Sesiune activă: ${recordingSessionId}`
+                : 'Nicio înregistrare în curs'
+            }
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Notă (opțional): tur de probă, cursă, test frâne…"
+                disabled={Boolean(recordingSessionId)}
+                className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/25 px-4 text-sm text-white placeholder:text-zinc-600 disabled:opacity-50"
+              />
 
-            {recordingSessionId ? (
-              <button
-                type="button"
-                onClick={stop}
-                disabled={isStopping}
-                className="flex min-h-11 items-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-60"
-              >
-                <CircleStop size={16} aria-hidden="true" />
-                Oprește înregistrarea
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => start(note)}
-                disabled={isStarting}
-                className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-60"
-              >
-                <Radio size={16} aria-hidden="true" />
-                Pornește înregistrarea
-              </button>
+              {recordingSessionId ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  disabled={isStopping}
+                  className="flex min-h-11 items-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-60"
+                >
+                  <CircleStop size={16} aria-hidden="true" />
+                  Oprește înregistrarea
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => start(note)}
+                  disabled={isStarting}
+                  className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-60"
+                >
+                  <Radio size={16} aria-hidden="true" />
+                  Pornește înregistrarea
+                </button>
+              )}
+            </div>
+
+            {recordingError && (
+              <p className="mt-3 text-sm text-rose-300" role="alert">
+                {recordingError}
+              </p>
             )}
-          </div>
-
-          {recordingError && (
-            <p className="mt-3 text-sm text-rose-300" role="alert">
-              {recordingError}
-            </p>
-          )}
-        </Panel>
-      </section>
+          </Panel>
+        </section>
+      )}
 
       <section className="mt-4">
         <Panel
@@ -218,14 +220,16 @@ function SessionRow({
             <Play size={14} aria-hidden="true" />
             Redare
           </button>
-          <a
-            href={exportUrl(session.id)}
-            download
-            className="flex min-h-9 items-center gap-1.5 rounded-lg bg-white/5 px-3 text-xs text-zinc-200 transition-colors hover:bg-white/10"
-          >
-            <Download size={14} aria-hidden="true" />
-            CSV
-          </a>
+          {!STATIC_REPLAY && (
+            <a
+              href={exportUrl(session.id)}
+              download
+              className="flex min-h-9 items-center gap-1.5 rounded-lg bg-white/5 px-3 text-xs text-zinc-200 transition-colors hover:bg-white/10"
+            >
+              <Download size={14} aria-hidden="true" />
+              CSV
+            </a>
+          )}
         </div>
       </td>
     </tr>

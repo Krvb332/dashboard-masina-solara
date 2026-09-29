@@ -62,6 +62,13 @@ export const WS_URL =
 
 export const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
 
+/**
+ * Build static, doar redare (Vercel): nu există server, deci nici flux live.
+ * Apelurile REST de mai jos sunt servite din fișiere JSON exportate cu
+ * `scripts/export-static.mjs` din ServerRUTTUCN, prin rewrites în vercel.json.
+ */
+export const STATIC_REPLAY = import.meta.env.VITE_STATIC_REPLAY === '1'
+
 export class ApiError extends Error {
   readonly status: number
 

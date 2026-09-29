@@ -1,7 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
-import { API_TOKEN, WS_URL, fetchCatalog, fetchHistory } from '../lib/api'
-import { registerReplayExitHook } from '../lib/replay-driver'
+import {
+  API_TOKEN,
+  STATIC_REPLAY,
+  WS_URL,
+  fetchCatalog,
+  fetchHistory,
+  fetchSessions,
+} from '../lib/api'
+import { registerReplayExitHook, replayDriver } from '../lib/replay-driver'
 import {
   consumeSnapshotHistoryDiscard,
   registerTelemetryControl,
@@ -47,7 +54,23 @@ export function useTelemetryStream(): void {
     if (catalog) setCatalog(catalog.signals)
   }, [catalog, setCatalog])
 
+  // Mod static: nu există flux live, deci pornim direct redarea ultimei
+  // sesiuni exportate, după ce catalogul e disponibil (redarea îl folosește
+  // pentru calitatea semnalelor).
   useEffect(() => {
+    if (!STATIC_REPLAY || !catalog) return
+    void fetchSessions(1)
+      .then((sessions) => sessions[0] && replayDriver.load(sessions[0]))
+      .catch((error: unknown) => {
+        console.warn('Sesiunile exportate nu au putut fi încărcate:', error)
+      })
+  }, [catalog])
+
+  useEffect(() => {
+    if (STATIC_REPLAY) {
+      setConnection('disconnected')
+      return
+    }
     const client = new TelemetryClient({
       url: WS_URL,
       token: API_TOKEN || undefined,
