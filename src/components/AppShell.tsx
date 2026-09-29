@@ -81,7 +81,6 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarPreference)
   const location = useLocation()
   const mode = useSessionStore((state) => state.mode)
-  const vehicleId = useTelemetryStore((state) => state.vehicleId)
   const recordingSessionId = useTelemetryStore(
     (state) => state.recordingSessionId,
   )
@@ -226,7 +225,7 @@ export function AppShell() {
                 {mode === 'replay' ? 'Sesiune înregistrată' : 'Sesiune live'}
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                {vehicleId ?? 'Sol Invictus II'}
+                Sol Invictus II
               </h1>
             </div>
           </div>
