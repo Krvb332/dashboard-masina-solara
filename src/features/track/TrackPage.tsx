@@ -4,6 +4,7 @@ import { ElevationProfileChart } from '../../components/ElevationProfile'
 import { GpsMappingPanel } from '../../components/GpsMappingPanel'
 import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { SpeedCard } from '../../components/SpeedCard'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { TrackMap, type TrackColorBy } from '../../components/TrackMap'
@@ -28,80 +29,90 @@ export function TrackPage() {
         <MetricCard signalKey="gps_altitude_m" />
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]">
-        <Panel
-          title={trackReference.name}
-          subtitle="Circuitul desenat din referință, poziția proiectată pe el"
-          action={<ColorByToggle value={colorBy} onChange={setColorBy} />}
+      <PanelGrid storageKey="traseu">
+        <PanelSlot id="harta" title={trackReference.name} span={4}>
+          <Panel
+            title={trackReference.name}
+            subtitle="Circuitul desenat din referință, poziția proiectată pe el"
+            action={<ColorByToggle value={colorBy} onChange={setColorBy} />}
+          >
+            <TrackMap height={420} colorBy={colorBy} />
+            <p className="mt-3 text-xs leading-5 text-zinc-500">
+              {colorBy === 'speed'
+                ? 'Albastru: viteză mică. Chihlimbar: viteză mare.'
+                : 'Verde: punctul cel mai de jos. Roz: cel mai de sus.'}{' '}
+              Banda gri este asfaltul, iar linia roșie estompată este poziția
+              brută, înainte de proiecție — distanța dintre ele este cât
+              corectează maparea. Bara albă marchează linia de start/sosire.
+            </p>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="calitate-pozitie" title="Calitatea poziției" span={2}>
+          <Panel title="Calitatea poziției" subtitle="Semnale GPS brute">
+            <ul className="space-y-2">
+              {gpsSignals.map((signal) => (
+                <MetricRow key={signal.key} signalKey={signal.key} />
+              ))}
+            </ul>
+            <p className="mt-4 text-xs leading-5 text-zinc-500">
+              HDOP mic înseamnă poziție precisă. Peste 2,5 harta poate „sări",
+              iar peste 5 poziția nu mai este de încredere pentru analiza
+              turului. VDOP se referă la verticală: fără el sub 3,5, altitudinea
+              nu susține calculul de pantă.
+            </p>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="elevatie" title="Profil de elevație" span={3}>
+          <Panel
+            title="Profil de elevație"
+            subtitle="Altitudine față de distanța parcursă"
+          >
+            <ElevationProfileChart height={240} />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="mapare" title="Verificarea mapării poziției" span={3}>
+          <Panel
+            title="Verificarea mapării poziției"
+            subtitle="Latitudine, longitudine și altitudine, confruntate cu restul telemetriei"
+          >
+            <GpsMappingPanel />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="pozitie-circuit" title="Poziția pe circuit" span={6}>
+          <Panel
+            title="Poziția pe circuit"
+            subtitle="Sector, metru al turului și abaterea față de mijlocul asfaltului"
+          >
+            <TrackPositionPanel />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot
+          id="viteza-putere"
+          title="Viteză și putere motor pe traseu"
+          span={6}
         >
-          <TrackMap height={420} colorBy={colorBy} />
-          <p className="mt-3 text-xs leading-5 text-zinc-500">
-            {colorBy === 'speed'
-              ? 'Albastru: viteză mică. Chihlimbar: viteză mare.'
-              : 'Verde: punctul cel mai de jos. Roz: cel mai de sus.'}{' '}
-            Banda gri este asfaltul, iar linia roșie estompată este poziția
-            brută, înainte de proiecție — distanța dintre ele este cât corectează
-            maparea. Bara albă marchează linia de start/sosire.
-          </p>
-        </Panel>
-
-        <Panel title="Calitatea poziției" subtitle="Semnale GPS brute">
-          <ul className="space-y-2">
-            {gpsSignals.map((signal) => (
-              <MetricRow key={signal.key} signalKey={signal.key} />
-            ))}
-          </ul>
-          <p className="mt-4 text-xs leading-5 text-zinc-500">
-            HDOP mic înseamnă poziție precisă. Peste 2,5 harta poate „sări", iar
-            peste 5 poziția nu mai este de încredere pentru analiza turului.
-            VDOP se referă la verticală: fără el sub 3,5, altitudinea nu susține
-            calculul de pantă.
-          </p>
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
-          title="Profil de elevație"
-          subtitle="Altitudine față de distanța parcursă"
-        >
-          <ElevationProfileChart height={240} />
-        </Panel>
-
-        <Panel
-          title="Verificarea mapării poziției"
-          subtitle="Latitudine, longitudine și altitudine, confruntate cu restul telemetriei"
-        >
-          <GpsMappingPanel />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <Panel
-          title="Poziția pe circuit"
-          subtitle="Sector, metru al turului și abaterea față de mijlocul asfaltului"
-        >
-          <TrackPositionPanel />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        {/*
+          {/*
           `vehicle_speed_kph` este viteza calculată de firmware din turație;
           `gps_speed_kph` există în catalog doar pentru un eventual receptor
           GNSS și rămâne „—" cât timp mașina nu are unul.
         */}
-        <Panel
-          title="Viteză și putere motor pe traseu"
-          subtitle="Ultimele 7 minute"
-        >
-          <TelemetryChart
-            signalKeys={['vehicle_speed_kph', 'motor_power_w']}
-            height={240}
-            ariaLabel="Grafic cu viteza mașinii și puterea motorului"
-          />
-        </Panel>
-      </section>
+          <Panel
+            title="Viteză și putere motor pe traseu"
+            subtitle="Ultimele 7 minute"
+          >
+            <TelemetryChart
+              signalKeys={['vehicle_speed_kph', 'motor_power_w']}
+              height={240}
+              ariaLabel="Grafic cu viteza mașinii și puterea motorului"
+            />
+          </Panel>
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }

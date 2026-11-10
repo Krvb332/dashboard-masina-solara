@@ -2,18 +2,22 @@ import clsx from 'clsx'
 import {
   Bolt,
   ChartLine,
-  Circle,
+  Check,
   CloudSun,
+  History,
   LayoutDashboard,
+  LayoutGrid,
   Map,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radio,
   Settings,
   Sun,
   Users,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { watchDriverStateFlush } from '../lib/driver-storage'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAnalyticsEngine } from '../hooks/useAnalyticsEngine'
@@ -23,6 +27,7 @@ import { useTelemetryStream } from '../hooks/useTelemetryStream'
 import { useWeather } from '../hooks/useWeather'
 import { API_URL } from '../lib/api'
 import { safeStorage } from '../lib/safe-storage'
+import { useLayoutEdit } from '../stores/layout-store'
 import { useSessionStore } from '../stores/session-store'
 import { useTelemetryStore } from '../stores/telemetry-store'
 import { ConnectionBadge } from './ConnectionBadge'
@@ -39,26 +44,35 @@ import { ReplayControls } from './ReplayControls'
  * să nu închidă și să redeschidă WebSocketul.
  */
 
+// Grupate după întrebarea la care răspund: ce face mașina acum, cum a mers
+// până acum, și în ce stare sunt mașina și datele.
 const navigation = [
-  { to: '/', label: 'Prezentare', icon: LayoutDashboard, end: true },
-  { to: '/statistici', label: 'Statistici', icon: ChartLine },
-  { to: '/energie', label: 'Energie', icon: Bolt },
-  { to: '/traseu', label: 'Traseu', icon: Map },
-  { to: '/vreme', label: 'Vreme', icon: CloudSun },
-  { to: '/piloti', label: 'Piloți', icon: Users },
-  { to: '/sistem', label: 'Sistem', icon: Settings },
-  { to: '/sesiuni', label: 'Sesiuni', icon: Circle },
+  {
+    group: 'Cursă',
+    items: [
+      { to: '/', label: 'Prezentare', icon: LayoutDashboard, end: true },
+      { to: '/traseu', label: 'Traseu', icon: Map },
+      { to: '/vreme', label: 'Vreme', icon: CloudSun },
+      { to: '/piloti', label: 'Piloți', icon: Users },
+    ],
+  },
+  {
+    group: 'Analiză',
+    items: [
+      { to: '/statistici', label: 'Statistici', icon: ChartLine },
+      { to: '/energie', label: 'Energie', icon: Bolt },
+    ],
+  },
+  {
+    group: 'Mașină și date',
+    items: [
+      { to: '/sistem', label: 'Sistem', icon: Settings },
+      { to: '/sesiuni', label: 'Sesiuni', icon: History },
+    ],
+  },
 ]
 
 const SIDEBAR_KEY = 'tucn:sidebar-open'
-const DESKTOP_QUERY = '(min-width: 1024px)'
-
-/** Adevărat pe ecranele unde bara laterală stă permanent lângă conținut. */
-function isDesktop(): boolean {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia?.(DESKTOP_QUERY).matches ?? false
-}
-
 /**
  * Bara laterală rămâne deschisă între reîncărcări dacă nu a fost închisă
  * explicit: pe un laptop din pitlane meniul vizibil este starea utilă.
@@ -75,8 +89,9 @@ export function AppShell() {
   useErrorFocus()
 
   // Două stări separate: sertarul peste conținut (mobil) și coloana fixă
-  // (desktop). Aceeași stare pentru amândouă ar redeschide sertarul mobil
-  // doar pentru că bara era deschisă pe ecran mare.
+  // (desktop), care se strânge la o bandă de pictograme în loc să dispară.
+  // Aceeași stare pentru amândouă ar redeschide sertarul mobil doar pentru că
+  // bara era deschisă pe ecran mare.
   const [menuOpen, setMenuOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarPreference)
   const location = useLocation()
@@ -96,15 +111,12 @@ export function AppShell() {
     safeStorage().setItem(SIDEBAR_KEY, sidebarOpen ? 'open' : 'closed')
   }, [sidebarOpen])
 
-  const openNavigation = useCallback(() => {
-    if (isDesktop()) setSidebarOpen(true)
-    else setMenuOpen(true)
-  }, [])
-
-  const closeNavigation = useCallback(() => {
-    if (isDesktop()) setSidebarOpen(false)
-    else setMenuOpen(false)
-  }, [])
+  const editing = useLayoutEdit((state) => state.editing)
+  const hasGrid = useLayoutEdit((state) => state.grids > 0)
+  const toggleEditing = useLayoutEdit((state) => state.toggle)
+  const pageLabel = navigation
+    .flatMap((section) => section.items)
+    .find((item) => item.to === location.pathname)?.label
 
   useEffect(() => {
     if (!menuOpen) return
@@ -115,13 +127,16 @@ export function AppShell() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [menuOpen])
 
+  // Pe ecran mare, bara strânsă arată doar pictogramele.
+  const railOnly = !sidebarOpen && 'lg:hidden'
+
   return (
     <div
       className={clsx(
         'min-h-screen lg:grid',
         sidebarOpen
           ? 'lg:grid-cols-[232px_minmax(0,1fr)]'
-          : 'lg:grid-cols-[minmax(0,1fr)]',
+          : 'lg:grid-cols-[72px_minmax(0,1fr)]',
       )}
     >
       {menuOpen && (
@@ -136,16 +151,21 @@ export function AppShell() {
       <aside
         id="navigatie-laterala"
         className={clsx(
-          'fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-y-auto border-r border-white/10 bg-zinc-950 px-4 py-6 transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 lg:self-start lg:bg-black/20',
+          'fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-y-auto border-r border-white/10 bg-zinc-950 px-4 py-5 transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 lg:self-start lg:bg-black/20',
           menuOpen ? 'translate-x-0' : '-translate-x-full',
-          !sidebarOpen && 'lg:hidden',
+          !sidebarOpen && 'lg:px-3',
         )}
       >
-        <div className="flex min-h-11 items-center gap-3 px-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-950">
+        <div className="flex min-h-11 items-center gap-3">
+          <span
+            className={clsx(
+              'grid size-10 shrink-0 place-items-center rounded-xl bg-blue-600 text-white',
+              railOnly,
+            )}
+          >
             <Sun size={22} aria-hidden="true" />
           </span>
-          <div className="min-w-0">
+          <div className={clsx('min-w-0', railOnly)}>
             <p className="truncate font-semibold text-white">
               TUCN Racing Team
             </p>
@@ -153,41 +173,74 @@ export function AppShell() {
           </div>
           <button
             type="button"
-            className="ml-auto grid size-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white"
-            onClick={closeNavigation}
+            className="ml-auto grid size-11 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white lg:hidden"
+            onClick={() => setMenuOpen(false)}
             aria-label="Închide meniul"
-            aria-controls="navigatie-laterala"
-            aria-expanded="true"
           >
             <X size={18} aria-hidden="true" />
           </button>
+          <button
+            type="button"
+            className="mx-auto hidden size-11 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white lg:grid"
+            onClick={() => setSidebarOpen((open) => !open)}
+            aria-label={sidebarOpen ? 'Strânge meniul' : 'Extinde meniul'}
+            aria-controls="navigatie-laterala"
+            aria-expanded={sidebarOpen}
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose size={18} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={18} aria-hidden="true" />
+            )}
+          </button>
         </div>
 
-        <nav className="mt-9" aria-label="Navigație principală">
-          <ul className="space-y-2">
-            {navigation.map(({ to, label, icon: Icon, end }) => (
-              <li key={to}>
-                <NavLink
-                  to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    clsx(
-                      'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-blue-500/15 text-blue-200'
-                        : 'text-zinc-400 hover:bg-white/5 hover:text-white',
-                    )
-                  }
-                >
-                  <Icon size={18} aria-hidden="true" />
-                  {label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
+        <nav className="mt-6 space-y-5" aria-label="Navigație principală">
+          {navigation.map(({ group, items }) => (
+            <div key={group}>
+              <p
+                className={clsx(
+                  'px-3 text-[11px] font-medium tracking-[0.16em] text-zinc-500 uppercase',
+                  railOnly,
+                )}
+              >
+                {group}
+              </p>
+              <ul className="mt-2 space-y-1">
+                {items.map(({ to, label, icon: Icon, end }) => (
+                  <li key={to}>
+                    <NavLink
+                      to={to}
+                      end={end}
+                      title={sidebarOpen ? undefined : label}
+                      className={({ isActive }) =>
+                        clsx(
+                          'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors',
+                          !sidebarOpen && 'lg:justify-center lg:px-0',
+                          isActive
+                            ? 'bg-blue-500/15 text-blue-200'
+                            : 'text-zinc-400 hover:bg-white/5 hover:text-white',
+                        )
+                      }
+                    >
+                      <Icon size={18} className="shrink-0" aria-hidden="true" />
+                      <span className={clsx(!sidebarOpen && 'lg:sr-only')}>
+                        {label}
+                      </span>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
 
-        <div className="mt-auto rounded-xl border border-white/10 bg-white/[0.035] p-3">
+        <div
+          className={clsx(
+            'mt-auto rounded-xl border border-white/10 bg-white/[0.035] p-3',
+            railOnly,
+          )}
+        >
           <div className="flex items-center gap-2 text-sm text-zinc-300">
             <Radio size={16} className="text-emerald-400" aria-hidden="true" />
             Serviciu telemetrie
@@ -204,33 +257,58 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main className="min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+      <main className="min-w-0 px-4 pb-6 sm:px-6 lg:px-8">
+        {/*
+          Lipit sus pe ecran mare: starea legăturii, înregistrarea și erorile
+          rămân la vedere oricât ai derula. Pe telefon antetul se rupe pe mai
+          multe rânduri și ar acoperi prea mult din ecran.
+        */}
+        <header className="-mx-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-white/10 bg-zinc-950/90 px-4 py-3 sm:-mx-6 sm:px-6 lg:sticky lg:top-0 lg:z-10 lg:-mx-8 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className={clsx(
-                'grid size-11 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white',
-                sidebarOpen && 'lg:hidden',
-              )}
-              onClick={openNavigation}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white lg:hidden"
+              onClick={() => setMenuOpen(true)}
               aria-label="Deschide meniul"
               aria-controls="navigatie-laterala"
-              aria-expanded={false}
+              aria-expanded={menuOpen}
             >
               <Menu size={20} aria-hidden="true" />
             </button>
             <div>
               <p className="text-xs font-medium tracking-[0.18em] text-blue-300 uppercase">
                 {mode === 'replay' ? 'Sesiune înregistrată' : 'Sesiune live'}
+                {pageLabel && (
+                  <span className="text-zinc-500"> · {pageLabel}</span>
+                )}
               </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+              <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-white sm:text-2xl">
                 Sol Invictus II
               </h1>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {hasGrid && (
+              <button
+                type="button"
+                className={clsx(
+                  'flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-medium',
+                  editing
+                    ? 'border-blue-400/40 bg-blue-500/20 text-blue-100'
+                    : 'border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white',
+                )}
+                aria-pressed={editing}
+                onClick={toggleEditing}
+              >
+                {editing ? (
+                  <Check size={18} aria-hidden="true" />
+                ) : (
+                  <LayoutGrid size={18} aria-hidden="true" />
+                )}
+                {editing ? 'Gata' : 'Aranjează'}
+              </button>
+            )}
             <RecordingButton />
             <DriverSwitcher />
             {mode === 'live' ? <ConnectionBadge /> : <ReplayBadge />}

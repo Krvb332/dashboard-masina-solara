@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { SpeedCard } from '../../components/SpeedCard'
 import { DERIVED_SIGNALS, derivedBuffer } from '../../lib/derived-buffer'
 import { TeensyStatsPanel } from '../../components/TeensyStatsPanel'
@@ -43,70 +44,76 @@ export function DashboardPage() {
         )}
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
-        <Panel
-          title="Flux energetic"
-          subtitle="Ultimele 7 minute · consum față de aport solar"
-          action={<LiveRate />}
-        >
-          <TelemetryChart
-            signalKeys={['battery_power_w', 'solar_power_w']}
-            ariaLabel="Grafic cu puterea consumată din baterie și puterea solară"
-          />
-        </Panel>
+      <PanelGrid storageKey="prezentare">
+        <PanelSlot id="flux" title="Flux energetic" span={4}>
+          <Panel
+            title="Flux energetic"
+            subtitle="Ultimele 7 minute · consum față de aport solar"
+            action={<LiveRate />}
+          >
+            <TelemetryChart
+              signalKeys={['battery_power_w', 'solar_power_w']}
+              ariaLabel="Grafic cu puterea consumată din baterie și puterea solară"
+            />
+          </Panel>
+        </PanelSlot>
 
-        <Panel title="Placă Teensy" subtitle="Starea plăcii de achiziție">
-          <TeensyStatsPanel />
-        </Panel>
-      </section>
+        <PanelSlot id="teensy" title="Placă Teensy" span={2}>
+          <Panel title="Placă Teensy" subtitle="Starea plăcii de achiziție">
+            <TeensyStatsPanel />
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
-          title="Poziție pe traseu"
-          subtitle="Culoarea urmei indică viteza"
-          action={
-            <Link
-              to="/traseu"
-              className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
-            >
-              Detalii
-            </Link>
-          }
-        >
-          <TrackMap height={260} />
-        </Panel>
+        <PanelSlot id="traseu" title="Poziție pe traseu" span={3}>
+          <Panel
+            title="Poziție pe traseu"
+            subtitle="Culoarea urmei indică viteza"
+            action={
+              <Link
+                to="/traseu"
+                className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
+              >
+                Detalii
+              </Link>
+            }
+          >
+            <TrackMap height={260} />
+          </Panel>
+        </PanelSlot>
 
-        <Panel
-          title="Viteza mașinii"
-          subtitle="Ultimele 7 minute · raportată de placă sau dedusă din turația motorului"
-        >
-          <TelemetryChart
-            signalKeys={['calc_ground_speed_kph']}
-            source={derivedBuffer}
-            extraDefinitions={DERIVED_SIGNALS}
-            windowMs={7 * 60_000}
-            height={260}
-            ariaLabel="Grafic cu viteza mașinii"
-          />
-        </Panel>
-      </section>
+        <PanelSlot id="viteza" title="Viteza mașinii" span={3}>
+          <Panel
+            title="Viteza mașinii"
+            subtitle="Ultimele 7 minute · raportată de placă sau dedusă din turația motorului"
+          >
+            <TelemetryChart
+              signalKeys={['calc_ground_speed_kph']}
+              source={derivedBuffer}
+              extraDefinitions={DERIVED_SIGNALS}
+              windowMs={7 * 60_000}
+              height={260}
+              ariaLabel="Grafic cu viteza mașinii"
+            />
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4">
-        <Panel
-          title="Vreme la fața locului"
-          subtitle="Condițiile care schimbă consumul și aportul solar"
-          action={
-            <Link
-              to="/vreme"
-              className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
-            >
-              Detalii
-            </Link>
-          }
-        >
-          <WeatherSummary />
-        </Panel>
-      </section>
+        <PanelSlot id="vreme" title="Vreme la fața locului" span={6}>
+          <Panel
+            title="Vreme la fața locului"
+            subtitle="Condițiile care schimbă consumul și aportul solar"
+            action={
+              <Link
+                to="/vreme"
+                className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
+              >
+                Detalii
+              </Link>
+            }
+          >
+            <WeatherSummary />
+          </Panel>
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }

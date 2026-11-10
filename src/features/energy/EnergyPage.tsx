@@ -1,6 +1,7 @@
 import { CellGrid } from '../../components/CellGrid'
 import { MetricCard, MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { TelemetryChart } from '../../components/TelemetryChart'
 import { useSignalsByGroup } from '../../hooks/useSignal'
 import { formatDuration, formatNumber, NO_VALUE } from '../../lib/format'
@@ -61,96 +62,105 @@ export function EnergyPage() {
         <MetricCard signalKey="energy_consumed_wh" />
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]">
-        <Panel title="Baterie: tensiune și curent" subtitle="Ultimele 7 minute">
-          <TelemetryChart
-            signalKeys={['battery_voltage_v', 'battery_current_a']}
-            ariaLabel="Grafic cu tensiunea și curentul pachetului de baterii"
-          />
-        </Panel>
-
-        <Panel title="Celule" subtitle="Extremele raportate de BMS">
-          <ul className="space-y-2">
-            <MetricRow signalKey="cell_voltage_min_v" />
-            <MetricRow signalKey="cell_voltage_max_v" />
-            <MetricRow signalKey="battery_temp_delta_c" />
-          </ul>
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <Panel
-          title="Tensiunea pe celulă"
-          subtitle="Fiecare celulă raportată de BMS, în ordinea din pachet"
-        >
-          <CellGrid />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <Panel title="Capacitate și cicluri" subtitle="Raportate de BMS">
-          <ul className="grid gap-2 sm:grid-cols-2">
-            <MetricRow signalKey="battery_capacity_remain_ah" />
-            <MetricRow signalKey="battery_capacity_total_ah" />
-            <MetricRow signalKey="battery_cycles" />
-            <MetricRow signalKey="battery_soh_pct" />
-          </ul>
-          <p className="mt-3 text-xs text-zinc-500">
-            BMS-ul ANT raportează capacitatea învățată, nu pe cea de proiect.
-            Starea de sănătate apare doar dacă firmware-ul cunoaște capacitatea
-            de proiect și o calculează el; altfel rămâne „—", ceea ce este
-            adevărat, spre deosebire de un procent dedus dintr-o referință care
-            lipsește.
-          </p>
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
-          title="Controlere MPPT"
-          subtitle="Cele două convertoare: putere culeasă, livrată, randament"
-        >
-          <ul className="space-y-2">
-            {mpptMain.map((signal) => (
-              <MetricRow key={signal.key} signalKey={signal.key} />
-            ))}
-          </ul>
-          {mpptOther.length > 0 && (
-            <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-              <summary className="cursor-pointer text-sm text-zinc-300">
-                Diagnostic convertoare ({mpptOther.length} semnale)
-              </summary>
-              <ul className="mt-2 space-y-2">
-                {mpptOther.map((signal) => (
-                  <MetricRow key={signal.key} signalKey={signal.key} />
-                ))}
-              </ul>
-            </details>
-          )}
-          <div className="mt-4">
+      <PanelGrid storageKey="energie">
+        <PanelSlot id="baterie" title="Baterie: tensiune și curent" span={4}>
+          <Panel
+            title="Baterie: tensiune și curent"
+            subtitle="Ultimele 7 minute"
+          >
             <TelemetryChart
-              signalKeys={mpptPower.map((signal) => signal.key)}
-              height={200}
-              ariaLabel="Grafic cu puterea culeasă de fiecare convertor MPPT"
+              signalKeys={['battery_voltage_v', 'battery_current_a']}
+              ariaLabel="Grafic cu tensiunea și curentul pachetului de baterii"
             />
-          </div>
-        </Panel>
+          </Panel>
+        </PanelSlot>
 
-        <LapTable />
-      </section>
+        <PanelSlot id="celule-extreme" title="Celule" span={2}>
+          <Panel title="Celule" subtitle="Extremele raportate de BMS">
+            <ul className="space-y-2">
+              <MetricRow signalKey="cell_voltage_min_v" />
+              <MetricRow signalKey="cell_voltage_max_v" />
+              <MetricRow signalKey="battery_temp_delta_c" />
+            </ul>
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4">
-        <Panel
-          title="Semnale de energie"
-          subtitle="Restul semnalelor din grupul energie, așa cum le raportează mașina"
-        >
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {rest.map((signal) => (
-              <MetricRow key={signal.key} signalKey={signal.key} />
-            ))}
-          </ul>
-        </Panel>
-      </section>
+        <PanelSlot id="tensiune-celula" title="Tensiunea pe celulă" span={6}>
+          <Panel
+            title="Tensiunea pe celulă"
+            subtitle="Fiecare celulă raportată de BMS, în ordinea din pachet"
+          >
+            <CellGrid />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="capacitate" title="Capacitate și cicluri" span={6}>
+          <Panel title="Capacitate și cicluri" subtitle="Raportate de BMS">
+            <ul className="grid gap-2 sm:grid-cols-2">
+              <MetricRow signalKey="battery_capacity_remain_ah" />
+              <MetricRow signalKey="battery_capacity_total_ah" />
+              <MetricRow signalKey="battery_cycles" />
+              <MetricRow signalKey="battery_soh_pct" />
+            </ul>
+            <p className="mt-3 text-xs text-zinc-500">
+              BMS-ul ANT raportează capacitatea învățată, nu pe cea de proiect.
+              Starea de sănătate apare doar dacă firmware-ul cunoaște
+              capacitatea de proiect și o calculează el; altfel rămâne „—", ceea
+              ce este adevărat, spre deosebire de un procent dedus dintr-o
+              referință care lipsește.
+            </p>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="mppt" title="Controlere MPPT" span={3}>
+          <Panel
+            title="Controlere MPPT"
+            subtitle="Cele două convertoare: putere culeasă, livrată, randament"
+          >
+            <ul className="space-y-2">
+              {mpptMain.map((signal) => (
+                <MetricRow key={signal.key} signalKey={signal.key} />
+              ))}
+            </ul>
+            {mpptOther.length > 0 && (
+              <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+                <summary className="cursor-pointer text-sm text-zinc-300">
+                  Diagnostic convertoare ({mpptOther.length} semnale)
+                </summary>
+                <ul className="mt-2 space-y-2">
+                  {mpptOther.map((signal) => (
+                    <MetricRow key={signal.key} signalKey={signal.key} />
+                  ))}
+                </ul>
+              </details>
+            )}
+            <div className="mt-4">
+              <TelemetryChart
+                signalKeys={mpptPower.map((signal) => signal.key)}
+                height={200}
+                ariaLabel="Grafic cu puterea culeasă de fiecare convertor MPPT"
+              />
+            </div>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="consum-tur" title="Consum pe tur" span={3}>
+          <LapTable />
+        </PanelSlot>
+
+        <PanelSlot id="semnale" title="Semnale de energie" span={6}>
+          <Panel
+            title="Semnale de energie"
+            subtitle="Restul semnalelor din grupul energie, așa cum le raportează mașina"
+          >
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {rest.map((signal) => (
+                <MetricRow key={signal.key} signalKey={signal.key} />
+              ))}
+            </ul>
+          </Panel>
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }

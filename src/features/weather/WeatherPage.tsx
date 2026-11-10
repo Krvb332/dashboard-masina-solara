@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { WeatherForecast } from '../../components/WeatherForecast'
 import { WeatherImpactPanel } from '../../components/WeatherImpactPanel'
 import { WeatherPanel } from '../../components/WeatherPanel'
@@ -91,39 +92,44 @@ function WeatherAdviceList() {
 export function WeatherPage() {
   return (
     <>
-      <section className="mt-7" aria-label="Recomandări meteo pentru pilot">
-        <Panel
+      <PanelGrid storageKey="vreme" className="mt-7">
+        <PanelSlot
+          id="recomandari"
           title="Ce transmitem pilotului despre vreme"
-          subtitle="Fiecare observație poartă cifra care o susține"
+          span={6}
         >
-          <WeatherAdviceList />
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)]">
-        <Panel
-          title="Condiții la fața locului"
-          subtitle="Măsurători brute, așa cum vin de la furnizor"
-        >
-          <WeatherPanel />
-        </Panel>
-
-        <Panel
-          title="Ce înseamnă pentru mașină"
-          subtitle="Mărimi derivate, cu formula sub fiecare cifră"
-        >
-          <WeatherImpactPanel />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <Panel
-          title="Următoarele ore"
-          subtitle="Bara arată iradianța estimată: când se închide fereastra solară"
-        >
-          <WeatherForecast />
-        </Panel>
-      </section>
+          <Panel
+            title="Ce transmitem pilotului despre vreme"
+            subtitle="Fiecare observație poartă cifra care o susține"
+          >
+            <WeatherAdviceList />
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="conditii" title="Condiții la fața locului" span={2}>
+          <Panel
+            title="Condiții la fața locului"
+            subtitle="Măsurători brute, așa cum vin de la furnizor"
+          >
+            <WeatherPanel />
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="impact" title="Ce înseamnă pentru mașină" span={4}>
+          <Panel
+            title="Ce înseamnă pentru mașină"
+            subtitle="Mărimi derivate, cu formula sub fiecare cifră"
+          >
+            <WeatherImpactPanel />
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="prognoza" title="Următoarele ore" span={6}>
+          <Panel
+            title="Următoarele ore"
+            subtitle="Bara arată iradianța estimată: când se închide fereastra solară"
+          >
+            <WeatherForecast />
+          </Panel>
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }

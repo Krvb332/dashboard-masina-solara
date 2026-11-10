@@ -21,7 +21,7 @@ export function Panel({
       className={clsx(
         // `min-w-0`: elementele de grid nu coboară implicit sub lățimea
         // conținutului, iar tabelele și textele lungi ar sparge layoutul pe ecrane mici.
-        'min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/10 backdrop-blur-sm',
+        'min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-5',
         className,
       )}
     >

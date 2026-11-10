@@ -4,6 +4,7 @@ import { DriveStatePanel } from '../../components/DriveStatePanel'
 import { FaultPanel } from '../../components/FaultPanel'
 import { MetricRow } from '../../components/MetricCard'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { SignalMappingPanel } from '../../components/SignalMappingPanel'
 import { SystemResetButton } from '../../components/SystemResetButton'
 import { fetchHealth } from '../../lib/api'
@@ -42,45 +43,49 @@ export function SystemPage() {
 
   return (
     <>
-      <section className="mt-7 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <StreamHealth />
-        <ServiceHealth />
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel title="Temperaturi" subtitle="Praguri definite în catalog">
-          <ul className="space-y-2">
-            {thermalSignals.map((signal) => (
-              <MetricRow key={signal.key} signalKey={signal.key} />
-            ))}
-          </ul>
-        </Panel>
-
-        <Panel title="Motor și invertor" subtitle="Stare mecanică">
-          <ul className="space-y-2">
-            {motorSignals.map((signal) => (
-              <MetricRow key={signal.key} signalKey={signal.key} />
-            ))}
-          </ul>
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Panel
-          title="Stare de condus"
-          subtitle="Cadrele 0 și 1 ale controllerului Mitsuba"
-        >
-          <DriveStatePanel />
-        </Panel>
-
-        <Panel title="Erori controller" subtitle="Cadrul 2, descompus pe biți">
-          <FaultPanel />
-        </Panel>
-      </section>
-
-      {(chassisSignals.length > 0 || boardSignals.length > 0) && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {chassisSignals.length > 0 && (
+      <PanelGrid storageKey="sistem" className="mt-7">
+        <PanelSlot id="flux" title="Sănătatea fluxului" span={3}>
+          <StreamHealth />
+        </PanelSlot>
+        <PanelSlot id="serviciu" title="Serviciu telemetrie" span={3}>
+          <ServiceHealth />
+        </PanelSlot>
+        <PanelSlot id="temperaturi" title="Temperaturi" span={3}>
+          <Panel title="Temperaturi" subtitle="Praguri definite în catalog">
+            <ul className="space-y-2">
+              {thermalSignals.map((signal) => (
+                <MetricRow key={signal.key} signalKey={signal.key} />
+              ))}
+            </ul>
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="motor" title="Motor și invertor" span={3}>
+          <Panel title="Motor și invertor" subtitle="Stare mecanică">
+            <ul className="space-y-2">
+              {motorSignals.map((signal) => (
+                <MetricRow key={signal.key} signalKey={signal.key} />
+              ))}
+            </ul>
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="stare-condus" title="Stare de condus" span={4}>
+          <Panel
+            title="Stare de condus"
+            subtitle="Cadrele 0 și 1 ale controllerului Mitsuba"
+          >
+            <DriveStatePanel />
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="erori-controller" title="Erori controller" span={2}>
+          <Panel
+            title="Erori controller"
+            subtitle="Cadrul 2, descompus pe biți"
+          >
+            <FaultPanel />
+          </Panel>
+        </PanelSlot>
+        {chassisSignals.length > 0 && (
+          <PanelSlot id="sasiu" title="Șasiu și anvelope" span={3}>
             <Panel
               title="Șasiu și anvelope"
               subtitle="Presiune și temperatură pe fiecare roată"
@@ -91,9 +96,10 @@ export function SystemPage() {
                 ))}
               </ul>
             </Panel>
-          )}
-
-          {boardSignals.length > 0 && (
+          </PanelSlot>
+        )}
+        {boardSignals.length > 0 && (
+          <PanelSlot id="placa" title="Placa de achiziție" span={3}>
             <Panel
               title="Placa de achiziție"
               subtitle="Starea firmware-ului, nu a mașinii"
@@ -104,22 +110,20 @@ export function SystemPage() {
                 ))}
               </ul>
             </Panel>
-          )}
-        </section>
-      )}
-
-      <section className="mt-4">
-        <Panel
-          title="Verificarea mapării semnalelor"
-          subtitle="Semnalele redundante trebuie să se confirme reciproc"
-        >
-          <SignalMappingPanel />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <QualityTable />
-      </section>
+          </PanelSlot>
+        )}
+        <PanelSlot id="mapare" title="Verificarea mapării semnalelor" span={6}>
+          <Panel
+            title="Verificarea mapării semnalelor"
+            subtitle="Semnalele redundante trebuie să se confirme reciproc"
+          >
+            <SignalMappingPanel />
+          </Panel>
+        </PanelSlot>
+        <PanelSlot id="calitate" title="Calitatea semnalelor" span={6}>
+          <QualityTable />
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }

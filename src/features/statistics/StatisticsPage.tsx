@@ -1,6 +1,7 @@
 import { ConsumptionPanel } from '../../components/ConsumptionPanel'
 import { ElevationProfileChart } from '../../components/ElevationProfile'
 import { Panel } from '../../components/Panel'
+import { PanelGrid, PanelSlot } from '../../components/PanelGrid'
 import { StatTile } from '../../components/StatTile'
 import { toneAbove, toneBelow } from '../../lib/stat-tone'
 import { TelemetryChart } from '../../components/TelemetryChart'
@@ -88,179 +89,197 @@ export function StatisticsPage() {
         />
       </section>
 
-      <section className="mt-4">
-        <Panel
+      <PanelGrid storageKey="statistici">
+        <PanelSlot
+          id="pachet-putere"
           title="Pachet: putere și recuperare"
-          subtitle="Cât iese din pachet, cât întoarce frâna regenerativă și bilanțul net"
+          span={6}
         >
-          <TelemetryChart
-            signalKeys={[
-              'calc_consumption_w',
-              'calc_regen_w',
-              'calc_net_power_w',
-            ]}
-            source={derivedBuffer}
-            extraDefinitions={DERIVED_SIGNALS}
-            windowMs={6 * 60_000}
-            height={260}
-            ariaLabel="Grafic cu puterea consumată, puterea recuperată și bilanțul de putere"
-          />
-        </Panel>
-      </section>
+          <Panel
+            title="Pachet: putere și recuperare"
+            subtitle="Cât iese din pachet, cât întoarce frâna regenerativă și bilanțul net"
+          >
+            <TelemetryChart
+              signalKeys={[
+                'calc_consumption_w',
+                'calc_regen_w',
+                'calc_net_power_w',
+              ]}
+              source={derivedBuffer}
+              extraDefinitions={DERIVED_SIGNALS}
+              windowMs={6 * 60_000}
+              height={260}
+              ariaLabel="Grafic cu puterea consumată, puterea recuperată și bilanțul de putere"
+            />
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
-          title="Consum din pachet"
-          subtitle="Wh pe kilometru scoși din pachet, pe fereastră glisantă"
-        >
-          <TelemetryChart
-            signalKeys={['calc_wh_per_km']}
-            source={derivedBuffer}
-            extraDefinitions={DERIVED_SIGNALS}
-            windowMs={6 * 60_000}
-            height={220}
-            ariaLabel="Grafic cu consumul specific în timp"
-          />
-        </Panel>
+        <PanelSlot id="consum-pachet" title="Consum din pachet" span={3}>
+          <Panel
+            title="Consum din pachet"
+            subtitle="Wh pe kilometru scoși din pachet, pe fereastră glisantă"
+          >
+            <TelemetryChart
+              signalKeys={['calc_wh_per_km']}
+              source={derivedBuffer}
+              extraDefinitions={DERIVED_SIGNALS}
+              windowMs={6 * 60_000}
+              height={220}
+              ariaLabel="Grafic cu consumul specific în timp"
+            />
+          </Panel>
+        </PanelSlot>
 
-        <Panel
-          title="Pachet față de necesar"
-          subtitle="Puterea din pachet față de rezistența la înaintare"
-        >
-          <TelemetryChart
-            signalKeys={['calc_consumption_w', 'calc_road_load_w']}
-            source={derivedBuffer}
-            extraDefinitions={DERIVED_SIGNALS}
-            windowMs={6 * 60_000}
-            height={220}
-            ariaLabel="Grafic cu puterea consumată și rezistența la înaintare"
-          />
-        </Panel>
-      </section>
+        <PanelSlot id="pachet-necesar" title="Pachet față de necesar" span={3}>
+          <Panel
+            title="Pachet față de necesar"
+            subtitle="Puterea din pachet față de rezistența la înaintare"
+          >
+            <TelemetryChart
+              signalKeys={['calc_consumption_w', 'calc_road_load_w']}
+              source={derivedBuffer}
+              extraDefinitions={DERIVED_SIGNALS}
+              windowMs={6 * 60_000}
+              height={220}
+              ariaLabel="Grafic cu puterea consumată și rezistența la înaintare"
+            />
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
+        <PanelSlot
+          id="energie"
           title="Energie: consum, soare, baterie"
-          subtitle="Ultimele șapte minute"
+          span={3}
         >
-          <TelemetryChart
-            signalKeys={['battery_power_w', 'solar_power_w', 'motor_power_w']}
-            height={220}
-            ariaLabel="Grafic cu puterea bateriei, puterea solară și puterea motorului"
-          />
-        </Panel>
-
-        <Panel
-          title="Autonomie și bilanț pachet"
-          subtitle="Cum evoluează rezerva"
-        >
-          <TelemetryChart
-            signalKeys={['calc_range_km', 'calc_energy_balance_wh']}
-            source={derivedBuffer}
-            extraDefinitions={DERIVED_SIGNALS}
-            windowMs={6 * 60_000}
-            height={220}
-            ariaLabel="Grafic cu autonomia estimată și bilanțul energetic"
-          />
-        </Panel>
-      </section>
-
-      <section className="mt-4">
-        <Panel
-          title="Panou de consum"
-          subtitle="Toate formulele utile pentru optimizare în timpul mersului"
-        >
-          <ConsumptionPanel />
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]">
-        <Panel
-          title="Profil de elevație"
-          subtitle="Altitudine față de distanța parcursă"
-        >
-          <ElevationProfileChart height={220} />
-        </Panel>
-
-        <Panel title="Teren" subtitle="Cât din efort este dat de pantă">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <StatTile
-              label="Pantă"
-              value={snapshot.gradePct}
-              unit="%"
-              decimals={1}
-              formula="Δaltitudine / Δdistanță"
+          <Panel
+            title="Energie: consum, soare, baterie"
+            subtitle="Ultimele șapte minute"
+          >
+            <TelemetryChart
+              signalKeys={['battery_power_w', 'solar_power_w', 'motor_power_w']}
+              height={220}
+              ariaLabel="Grafic cu puterea bateriei, puterea solară și puterea motorului"
             />
-            <StatTile
-              label="Altitudine"
-              value={snapshot.altitudeM}
-              unit="m"
-              decimals={1}
-              formula="GNSS, WGS84"
-            />
-            <StatTile
-              label="Urcat cumulat"
-              value={snapshot.totals.elevationGainM}
-              unit="m"
-              decimals={0}
-              formula="Σ creșteri peste 0,5 m"
-            />
-            <StatTile
-              label="Coborât cumulat"
-              value={snapshot.totals.elevationLossM}
-              unit="m"
-              decimals={0}
-              formula="Σ scăderi peste 0,5 m"
-            />
-          </div>
-          <p className="mt-3 text-xs leading-5 text-zinc-500">
-            Fără altitudine validă panta rămâne „—", nu zero: modelul de
-            rezistență la înaintare ar minți la fel de tare cu „drum plat" pus
-            în locul lui „nu știu".
-          </p>
-        </Panel>
-      </section>
+          </Panel>
+        </PanelSlot>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel
-          title="Termic"
-          subtitle="Cât spațiu mai este până la limitarea de putere"
-        >
-          <ul className="grid gap-2">
-            {snapshot.thermal.map((trend) => (
-              <li
-                key={trend.key}
-                className="flex min-h-11 items-center justify-between gap-4 rounded-xl bg-black/15 px-3 py-2"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-sm text-zinc-200">
-                    {thermalLabels[trend.key] ?? trend.key}
-                  </span>
-                  <span className="block text-xs text-zinc-500">
-                    {trend.ratePerMinC === null
-                      ? 'fără tendință calculabilă'
-                      : `${formatNumber(trend.ratePerMinC, 2)} °C/min`}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right">
-                  <span className="block text-sm font-semibold text-zinc-100 tabular-nums">
-                    {trend.valueC === null
-                      ? NO_VALUE
-                      : `${formatNumber(trend.valueC, 1)} °C`}
-                  </span>
-                  <span className="block text-xs text-zinc-500 tabular-nums">
-                    {trend.timeToCritS === null
-                      ? 'nu se apropie de prag'
-                      : `prag critic în ~${Math.max(1, Math.round(trend.timeToCritS / 60))} min`}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
+        <PanelSlot id="autonomie" title="Autonomie și bilanț pachet" span={3}>
+          <Panel
+            title="Autonomie și bilanț pachet"
+            subtitle="Cum evoluează rezerva"
+          >
+            <TelemetryChart
+              signalKeys={['calc_range_km', 'calc_energy_balance_wh']}
+              source={derivedBuffer}
+              extraDefinitions={DERIVED_SIGNALS}
+              windowMs={6 * 60_000}
+              height={220}
+              ariaLabel="Grafic cu autonomia estimată și bilanțul energetic"
+            />
+          </Panel>
+        </PanelSlot>
 
-        <DriverSummary />
-      </section>
+        <PanelSlot id="panou-consum" title="Panou de consum" span={6}>
+          <Panel
+            title="Panou de consum"
+            subtitle="Toate formulele utile pentru optimizare în timpul mersului"
+          >
+            <ConsumptionPanel />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="elevatie" title="Profil de elevație" span={4}>
+          <Panel
+            title="Profil de elevație"
+            subtitle="Altitudine față de distanța parcursă"
+          >
+            <ElevationProfileChart height={220} />
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="teren" title="Teren" span={2}>
+          <Panel title="Teren" subtitle="Cât din efort este dat de pantă">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <StatTile
+                label="Pantă"
+                value={snapshot.gradePct}
+                unit="%"
+                decimals={1}
+                formula="Δaltitudine / Δdistanță"
+              />
+              <StatTile
+                label="Altitudine"
+                value={snapshot.altitudeM}
+                unit="m"
+                decimals={1}
+                formula="GNSS, WGS84"
+              />
+              <StatTile
+                label="Urcat cumulat"
+                value={snapshot.totals.elevationGainM}
+                unit="m"
+                decimals={0}
+                formula="Σ creșteri peste 0,5 m"
+              />
+              <StatTile
+                label="Coborât cumulat"
+                value={snapshot.totals.elevationLossM}
+                unit="m"
+                decimals={0}
+                formula="Σ scăderi peste 0,5 m"
+              />
+            </div>
+            <p className="mt-3 text-xs leading-5 text-zinc-500">
+              Fără altitudine validă panta rămâne „—", nu zero: modelul de
+              rezistență la înaintare ar minți la fel de tare cu „drum plat" pus
+              în locul lui „nu știu".
+            </p>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="termic" title="Termic" span={3}>
+          <Panel
+            title="Termic"
+            subtitle="Cât spațiu mai este până la limitarea de putere"
+          >
+            <ul className="grid gap-2">
+              {snapshot.thermal.map((trend) => (
+                <li
+                  key={trend.key}
+                  className="flex min-h-11 items-center justify-between gap-4 rounded-xl bg-black/15 px-3 py-2"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm text-zinc-200">
+                      {thermalLabels[trend.key] ?? trend.key}
+                    </span>
+                    <span className="block text-xs text-zinc-500">
+                      {trend.ratePerMinC === null
+                        ? 'fără tendință calculabilă'
+                        : `${formatNumber(trend.ratePerMinC, 2)} °C/min`}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-semibold text-zinc-100 tabular-nums">
+                      {trend.valueC === null
+                        ? NO_VALUE
+                        : `${formatNumber(trend.valueC, 1)} °C`}
+                    </span>
+                    <span className="block text-xs text-zinc-500 tabular-nums">
+                      {trend.timeToCritS === null
+                        ? 'nu se apropie de prag'
+                        : `prag critic în ~${Math.max(1, Math.round(trend.timeToCritS / 60))} min`}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </PanelSlot>
+
+        <PanelSlot id="piloti" title="Piloți" span={3}>
+          <DriverSummary />
+        </PanelSlot>
+      </PanelGrid>
     </>
   )
 }
